@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using BozjaBuddyReborn;
 using BozjaBuddyReborn.Game;
 
 namespace BozjaBuddyReborn.Relic;
@@ -27,6 +28,17 @@ public readonly record struct DropSource(
     public string Describe()
     {
         var where = FieldRegions.Label(Territory, Region);
+        if (Loc.Ja)
+        {
+            var whatJa = Activity switch
+            {
+                DropActivity.Skirmish => "スカーミッシュ",
+                DropActivity.CriticalEngagement => "クリティカルエンゲージメント",
+                _ => "スカーミッシュ / クリティカルエンゲージメント",
+            };
+            return $"{where} の{whatJa}（1回あたり {PerClear}個）";
+        }
+
         var what = Activity switch
         {
             DropActivity.Skirmish => "skirmishes",

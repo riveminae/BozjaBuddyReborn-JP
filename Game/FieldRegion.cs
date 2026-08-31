@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using BozjaBuddyReborn;
 using ECommons.DalamudServices;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 
@@ -88,37 +89,42 @@ public static unsafe class FieldRegions
         _ => FieldRegionId.Unknown,
     };
 
-    /// <summary>The in-game name of a region, e.g. "The Northern Plateau".</summary>
+    /// <summary>The in-game localized name of a region.</summary>
     public static string Name(uint territory, FieldRegionId region)
     {
         if (region == FieldRegionId.Unknown)
-            return "unknown zone";
+            return Loc.T("unknown zone", "不明なエリア");
 
-        if (territory == BozjaZones.BozjanSouthernFront)
-            return region switch
-            {
-                FieldRegionId.Zone1 => "Southern Entrenchment",
-                FieldRegionId.Zone2 => "Old Bozja",
-                FieldRegionId.Zone3 => "The Alermuc Climb",
-                _ => "unknown zone",
-            };
+        var (placeNameId, fallback) = (territory, region) switch
+        {
+            (BozjaZones.BozjanSouthernFront, FieldRegionId.Zone1) => (SouthernEntrenchment, "Southern Entrenchment"),
+            (BozjaZones.BozjanSouthernFront, FieldRegionId.Zone2) => (OldBozja, "Old Bozja"),
+            (BozjaZones.BozjanSouthernFront, FieldRegionId.Zone3) => (AlermucClimb, "The Alermuc Climb"),
+            (BozjaZones.Zadnor, FieldRegionId.Zone1) => (SouthernPlateau, "The Southern Plateau"),
+            (BozjaZones.Zadnor, FieldRegionId.Zone2) => (WesternPlateau, "The Western Plateau"),
+            (BozjaZones.Zadnor, FieldRegionId.Zone3) => (NorthernPlateau, "The Northern Plateau"),
+            _ => (0u, Loc.T("unknown zone", "不明なエリア")),
+        };
 
-        if (territory == BozjaZones.Zadnor)
-            return region switch
-            {
-                FieldRegionId.Zone1 => "The Southern Plateau",
-                FieldRegionId.Zone2 => "The Western Plateau",
-                FieldRegionId.Zone3 => "The Northern Plateau",
-                _ => "unknown zone",
-            };
+        if (placeNameId == 0)
+            return fallback;
 
-        return "unknown zone";
+        try
+        {
+            var localized = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.PlaceName>()?
+                .GetRowOrDefault(placeNameId)?.Name.ExtractText();
+            return string.IsNullOrWhiteSpace(localized) ? fallback : localized;
+        }
+        catch
+        {
+            return fallback;
+        }
     }
 
     /// <summary>Short label, e.g. "Z3 - The Northern Plateau".</summary>
     public static string Label(uint territory, FieldRegionId region)
         => region == FieldRegionId.Unknown
-            ? "unknown zone"
+            ? Loc.T("unknown zone", "不明なエリア")
             : $"Z{(byte)region} - {Name(territory, region)}";
 
     /// <summary>

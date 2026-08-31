@@ -1,0 +1,52 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '**/*.cs'
+      - 'BozjaBuddyReborn.csproj'
+      - 'BozjaBuddyReborn.json'
+      - '.github/workflows/build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install Dalamud dev files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dalamudDir = "$env:AppData\XIVLauncher\addon\Hooks\dev"
+          New-Item -ItemType Directory -Force -Path $dalamudDir | Out-Null
+          Invoke-WebRequest -Uri 'https://goatcorp.github.io/dalamud-distrib/latest.zip' -OutFile dalamud.zip
+          Expand-Archive -Path dalamud.zip -DestinationPath $dalamudDir -Force
+          Remove-Item dalamud.zip
+
+      - name: Restore
+        run: dotnet restore BozjaBuddyReborn.csproj
+
+      - name: Build Debug
+        run: dotnet build BozjaBuddyReborn.csproj -c Debug --no-restore --nologo
+
+      - name: Build Release
+        run: dotnet build BozjaBuddyReborn.csproj -c Release --no-restore --nologo
+
+      - name: Upload release output
+        uses: actions/upload-artifact@v4
+        with:
+          name: BozjaBuddyReborn-JP
+          path: bin/Release/**
+          if-no-files-found: warn

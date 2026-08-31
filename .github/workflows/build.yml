@@ -1,4 +1,4 @@
-name: Build
+name: Build and publish custom repo
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ on:
       - '.github/workflows/build.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v5
@@ -49,4 +51,53 @@ jobs:
         with:
           name: BozjaBuddyReborn-JP
           path: bin/Release/**
-          if-no-files-found: warn
+          if-no-files-found: error
+
+      - name: Prepare Dalamud custom repository
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item 'bin/Release/BozjaBuddyReborn/latest.zip' 'dist/BozjaBuddyReborn.zip' -Force
+
+          $manifest = @'
+          [
+            {
+              "Author": "Bozja Buddy Reborn contributors / JP localization by riveminae",
+              "Name": "Bozja Buddy Reborn JP",
+              "InternalName": "BozjaBuddyReborn",
+              "AssemblyVersion": "1.0.28.1",
+              "TestingAssemblyVersion": "1.0.28.1",
+              "Description": "Bozja Buddy Reborn の日本語クライアント向けfork。南方ボズヤ戦線 / ザトゥノルでCEとスカーミッシュを選択し、vnavmesh・BossMod・Rotation Solver Rebornを連携して移動と戦闘を行います。CEの『参加希望』『戦闘突入』を日本語UIで認識します。移動・戦闘の自動化はFFXIV利用規約上のリスクがあります。自己責任で使用してください。",
+              "Punchline": "南方ボズヤ戦線 / ザトゥノルのCE・スカーミッシュ周回を日本語対応",
+              "ApplicableVersion": "any",
+              "DalamudApiLevel": 15,
+              "Tags": ["bozja", "zadnor", "field operations", "automation", "japanese"],
+              "CategoryTags": ["utility"],
+              "RepoUrl": "https://github.com/riveminae/BozjaBuddyReborn-JP",
+              "IconUrl": "",
+              "Changelog": "1.0.28.1 - Japanese client support for Critical Engagement registration/commence and Japanese localization for primary UI controls.",
+              "IsHide": false,
+              "IsTestingExclusive": false,
+              "AcceptsFeedback": true,
+              "DownloadLinkInstall": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/main/dist/BozjaBuddyReborn.zip",
+              "DownloadLinkUpdate": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/main/dist/BozjaBuddyReborn.zip",
+              "DownloadLinkTesting": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/main/dist/BozjaBuddyReborn.zip"
+            }
+          ]
+          '@
+          Set-Content -Path pluginmaster.json -Value $manifest -Encoding utf8
+
+      - name: Publish custom repo files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (git status --porcelain)) {
+            Write-Host 'No distribution changes.'
+            exit 0
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/BozjaBuddyReborn.zip pluginmaster.json
+          git commit -m 'build: publish Dalamud custom repository package'
+          git push

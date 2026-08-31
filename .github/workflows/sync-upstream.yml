@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/sync-upstream.yml'
       - 'tools/localize_bbr.py'
+      - 'tools/localize_extra.py'
 
 permissions:
   contents: write
@@ -32,6 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/localize_bbr.py /tmp/DalamudPlugins
+          python3 tools/localize_extra.py /tmp/DalamudPlugins
 
       - name: Sync standalone plugin source
         shell: bash
@@ -55,6 +57,9 @@ jobs:
           grep -F '戦闘突入' Automation/SignUpRunner.cs
           grep -F 'CE / スカーミッシュ' Windows/MainWindow.cs
           grep -F 'クリティカルエンゲージメントに参加する' Windows/ConfigWindow.cs
+          grep -F 'Lumina.Excel.Sheets.PlaceName' Game/FieldRegion.cs
+          grep -F 'スカーミッシュ / クリティカルエンゲージメント' Relic/ZoneDrops.cs
+          grep -F 'https://github.com/riveminae/BozjaBuddyReborn-JP' BozjaBuddyReborn.json
           grep -F '<PackageReference Include="ECommons" Version="3.2.1.18" />' BozjaBuddyReborn.csproj
 
       - name: Commit generated source

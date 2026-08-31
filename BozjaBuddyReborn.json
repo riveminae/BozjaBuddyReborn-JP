@@ -1,0 +1,12 @@
+{
+  "Author": "Bozja Buddy Reborn contributors",
+  "Name": "Bozja Buddy Reborn JP",
+  "InternalName": "BozjaBuddyReborn",
+  "Punchline": "南方ボズヤ戦線 / ザトゥノルのCE・スカーミッシュ周回を自動化",
+  "Description": "Reads live Bozja/Zadnor field-operation state (mettle, resistance rank, Lost Action holster, Critical Engagement phases) and orchestrates vnavmesh for movement, BossMod Reborn for AoE avoidance and Rotation Solver Reborn for rotations. Includes multibox coordination across game clients and Resistance relic progress tracking.",
+  "ApplicableVersion": "any",
+  "RepoUrl": "",
+  "Tags": [ "bozja", "zadnor", "field operations", "automation" ],
+  "LoadRequiredState": 0,
+  "CanUnloadAsync": false
+}

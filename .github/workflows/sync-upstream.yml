@@ -1,0 +1,72 @@
+name: Sync upstream and apply JP localization
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/sync-upstream.yml'
+      - 'tools/localize_bbr.py'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout JP repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream Bozja Buddy Reborn
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/DalamudPlugins
+          git clone --depth 1 https://github.com/OmegaJackie/DalamudPlugins.git /tmp/DalamudPlugins
+
+      - name: Apply Japanese localization
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/localize_bbr.py /tmp/DalamudPlugins
+
+      - name: Sync standalone plugin source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='tools/' \
+            --exclude='README.md' \
+            /tmp/DalamudPlugins/plugins/BozjaBuddyReborn/ ./
+          cp /tmp/DalamudPlugins/plugins/BozjaBuddyReborn/README.md UPSTREAM_README.md
+          cp /tmp/DalamudPlugins/.gitignore .gitignore
+
+      - name: Verify localization markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f Localization.cs
+          grep -F '参加希望' Automation/SignUpRunner.cs
+          grep -F '戦闘突入' Automation/SignUpRunner.cs
+          grep -F 'CE / スカーミッシュ' Windows/MainWindow.cs
+          grep -F 'クリティカルエンゲージメントに参加する' Windows/ConfigWindow.cs
+          grep -F '<PackageReference Include="ECommons" Version="3.2.1.18" />' BozjaBuddyReborn.csproj
+
+      - name: Commit generated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet && git diff --cached --quiet; then
+            echo 'No changes.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'sync: upstream BozjaBuddyReborn with JP localization'
+          git push

@@ -23,6 +23,17 @@ def forbid(path: str, needle: str, why: str) -> None:
     print(f"ok: {path}: {why}")
 
 
+def require_order(path: str, first: str, second: str, why: str) -> None:
+    text = read(path)
+    a = text.find(first)
+    b = text.find(second)
+    if a < 0 or b < 0 or a >= b:
+        raise SystemExit(
+            f"CONTRACT FAIL [{path}]: {why}\nexpected order: {first!r} before {second!r}"
+        )
+    print(f"ok: {path}: {why}")
+
+
 # JP fork visible-language invariant.
 require("Localization.cs", "public static bool Ja => true;", "visible UI is Japanese-fixed")
 
@@ -100,6 +111,26 @@ require(
     "Automation/SupplyManager.cs",
     "return new SupplyStatus(false, false, false",
     "unknown inventory does not falsely block CE Commence",
+)
+
+# Critical depletion interrupts ordinary skirmishes, but not an already-deployed CE. Remote CE
+# registration must also continue before recovery takes movement ownership. SupplyRecoveryDriver
+# is explicitly navigation+interaction only: no direct AgentMycItemBox memory manipulation.
+require("Automation/BozjaController.cs", "RunCriticalSupplyRecovery(supply);", "critical depletion enters cache recovery")
+require("Automation/SupplyRecoveryDriver.cs", "Interactables.LostFindsCache", "recovery targets the real Lost Finds Cache object")
+require("Automation/SupplyRecoveryDriver.cs", "waitForOptionalDependencies: true", "cache recovery uses nonurgent Lifestream policy")
+forbid("Automation/SupplyRecoveryDriver.cs", "ItemBoxData", "recovery driver does not mutate MYC inventory memory")
+require_order(
+    "Automation/BozjaController.cs",
+    "TickAutomaticCeRegistration();",
+    "RunCriticalSupplyRecovery(supply);",
+    "CE registration runs before critical supply recovery",
+)
+require_order(
+    "Automation/BozjaController.cs",
+    "if (current is { } ce && ce.IsLive)",
+    "RunCriticalSupplyRecovery(supply);",
+    "a live CE outranks supply recovery",
 )
 
 # Required dependency recovery must retain the safe-stop path and survival automation while

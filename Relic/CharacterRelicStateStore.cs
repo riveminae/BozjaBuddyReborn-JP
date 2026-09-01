@@ -1,4 +1,5 @@
 using ECommons.DalamudServices;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
 
 namespace BozjaBuddyReborn.Relic;
 
@@ -7,7 +8,7 @@ namespace BozjaBuddyReborn.Relic;
 /// persisting that selection separately for each character. This avoids rewriting every existing
 /// selector/window call site and prevents one character's farm target leaking into another.
 /// </summary>
-public sealed class CharacterRelicStateStore(Configuration config)
+public sealed unsafe class CharacterRelicStateStore(Configuration config)
 {
     private readonly Configuration _config = config;
     private ulong _activeContentId;
@@ -15,7 +16,8 @@ public sealed class CharacterRelicStateStore(Configuration config)
 
     public void Tick()
     {
-        var cid = Svc.ClientState.LocalContentId;
+        var playerState = PlayerState.Instance();
+        var cid = playerState != null && playerState->IsLoaded ? playerState->ContentId : 0UL;
         if (cid == 0)
             return;
 
@@ -34,8 +36,6 @@ public sealed class CharacterRelicStateStore(Configuration config)
             return;
         }
 
-        // UI and RelicFarmCoordinator intentionally still write the compatibility field directly.
-        // Capture such changes here and persist only on an edge, never every framework tick.
         if (_config.FarmMaterialItemId == _lastObservedFarmTarget)
             return;
 

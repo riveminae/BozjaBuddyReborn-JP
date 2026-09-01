@@ -3,8 +3,8 @@
 最終更新: 2026-09-02  
 branch: `feat/bocchi-navigation`  
 main baseline: `038faf8d70b2aea7189143f7fd46a8c135cb0484`  
-最新CI検証commit: `b732376ade4ccf3f8a8ab2aa0f0b030947ed1e28`  
-最新CI検証Test version: `1.0.90.94`  
+最新CI検証commit: `c4b77410b724202125e7dbb2a2c5360f7690ebdf`  
+最新CI検証Test version: `1.0.90.114`  
 Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 
 ## ステータス定義
@@ -20,16 +20,20 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 
 ## 現在地点の重要事項
 
-- Debug / Release build、test ZIP、manifest version検証、test repository publishまでCI成功済み。
+- Debug / Release build、static contract、test ZIP、manifest version検証、test repository publishまでCI成功済み。
 - Test版はGitHub Actions run numberから毎回異なる `1.0.90.x` を生成するため、同一versionのZIP差し替えではなくDalamudが更新判定できる形になった。
+- `tools/validate_v110_contract.py` をCIへ組み込み、CE安全クリック、mounted invariant、補給優先順位、依存復旧、敵ランク安全側判定、AGPL/provenance等の設計不変条件をcompile前に検査する。
 - BOCCHI-style Direct / Aethernet / Return 経路は実装済み。歩行コストだけはfull BOCCHI graphではなくBBR adapterの水平距離近似を残している。
-- Lifestreamはイベント移動中に欠落すれば即徒歩fallback、待機地点など非緊急移動では最大30秒復帰待ち。
+- Lifestreamはイベント移動中に欠落すれば即徒歩fallback、待機地点/補給など非緊急移動では最大30秒復帰待ち。
 - 到達不能スカーミッシュは同一spawnだけBlacklistし、FATE消滅後に自動解除する。
 - 手動移動はWASD/矢印および左右マウス同時押しを検出し、3秒quietになるまでvnavmeshをyieldする。
 - 敵 I〜V/★ は名前/region fallbackで安全側に判定でき、unknownも危険扱い。raw icon直接対応だけ未確定。
 - Debug world overlayで目的地/Aethernet経路/IV・V・★・unknown敵の感知形状を可視化可能。
 - Survival auto-use、Reraiser risk-window、role別閾値、mounted invariantは実装済み。
 - required dependencyは60秒復帰待ち。その間は非マウント時の生存Lost Actionを継続し、timeout後は戦闘終了待ち→可能ならReturn→停止、Return不能ならその場で停止。
+- `SupplyManager` のlow-watermark判定をControllerへ配線済み。**CriticalNoRecoveryならスカーミッシュを即中断**、通常不足なら**到着済みの現在スカーミッシュだけ完走してから**Lost Finds Cacheへ向かう。
+- CE参加申請は補給移動より先に継続する。CE当選後はCriticalNoRecoveryの場合だけCommenceを保留し、それ以外は即戦闘突入する。既に開始済みのCEは補給より常に優先する。
+- `SupplyRecoveryDriver` はBOCCHI/Lifestream経路で拠点へ戻り、実際のLost Finds Cacheを開くところまで自動化済み。server-backed在庫の転送は行わない。
 - Lost Finds Cache/Holsterの読み取り・target planning・low-watermark評価は実装済み。
 - **最大の残blockerはCache↔Holsterの正規サーバー転送手段**。公開ClientStructs/公開Dalamud実装から確定できず、推測callbackや直接memory writeは行わない。
 - `DiagnosticsRecorder` は直近state/status 32件 / warning 16件をprivacy-safeに保持し、診断コピーへ含める。
@@ -61,7 +65,7 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 | P5-04 | BLOCKED | Initialize rollback | snapshot/transaction設計済み。実transfer確定待ち |
 | P6-01 | DONE | low-watermark model | `SupplyManager` + target counts実装済み |
 | P6-02 | BLOCKED | differential refill | transfer effect待ち |
-| P6-03 | PARTIAL | Supply vs CE arbitration | evaluator/要件あり。実refill effect待ち |
+| P6-03 | DONE | Supply vs CE arbitration | critical即中断 / routine現スカーミッシュ完走 / CE登録継続 / critical時のみCommence保留 / Cache自動移動・openまでCI済み |
 | P7-01 | DONE | Reraiser risk-window | emergencyへのedgeで1回のみ候補化 |
 | P7-02 | BLOCKED | Essence Initialize integration | priority/bring/autouse/overwrite policyあり。transfer effect待ち |
 | P7-03 | DONE | mounted invariant | mounted中survival Lost Actionを発火しない |
@@ -94,12 +98,14 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 
 ## CI evidence
 
-### latest validated baseline before current incremental pushes
+### latest validated baseline
 
 - workflow: `Build v1.1 test repository`
-- validated bot commit: `b732376ade4ccf3f8a8ab2aa0f0b030947ed1e28`
-- version: `1.0.90.94`
+- run: `33528892610` / run number `114`
+- validated bot commit: `c4b77410b724202125e7dbb2a2c5360f7690ebdf`
+- version: `1.0.90.114`
 - packet application: pass
+- static v1.1 contract: pass
 - diff check: pass
 - restore: pass
 - Debug build: pass
@@ -134,11 +140,11 @@ Current user commits after that validation are intentionally pushed frequently; 
 
 ユーザー確認/実機確認を要求せず、以下を順次進める。
 
-1. P11-06 残存visible English literal最終走査
+1. P11-06 残存visible English literal最終走査 + CI audit
 2. P11-01 UIカテゴリ最終整理
-3. P6-03 CEと補給のarbitrationをtransfer effectから分離できる範囲まで完成
-4. P5-01 Cache transferの公開根拠探索を継続
-5. static acceptance checklist / RC前自己診断を追加
+3. P5-01 Cache transferの公開根拠探索を継続
+4. Cache側在庫不足のread-only診断・loop防止設計をtransfer executorと独立して追加
+5. RC前static acceptance checklistを拡張
 6. 実機依存項目は最後にまとめて確認
 
 ## 実機検証方針

@@ -2,223 +2,141 @@
 
 最終更新: 2026-09-01  
 branch: `feat/bocchi-navigation`  
-main baseline: `038faf8d70b2aea7189143f7fd46a8c135cb0484`
+main baseline: `038faf8d70b2aea7189143f7fd46a8c135cb0484`  
+最新CI検証commit: `4432000190e110a9f921b7dd946ab9578fc7bce9`  
+Test version: `1.0.90.4`
 
 ## ステータス定義
 
-- `DONE`: build + 必要な検証まで完了
-- `PARTIAL`: コード基礎あり。要件を満たすには追加実装/検証が必要
+- `DONE`: コード/静的検証/CIで完了できる範囲を完了
+- `PARTIAL`: コード基礎あり。要件を満たすには追加実装または最終確認が必要
 - `TODO`: 未着手または完成コードなし
-- `RESEARCH`: 技術調査待ち
-- `WAITING_LIVE_TEST`: build済みだが実機確認待ち
-- `BLOCKED`: 前提task未完了で進めない
+- `RESEARCH`: 技術調査継続中
+- `WAITING_LIVE_TEST`: コード側は準備済みだがゲーム実データなしでは最終確定不能
+- `BLOCKED`: 外部仕様が確定するまで安全に実装できない
+
+> 方針変更: ユーザー確認/実機検証を通常の作業停止条件にしない。公開コード・ClientStructs・CIで確定できる作業を先行し、実機でしか得られない情報だけ最後まで `WAITING_LIVE_TEST/BLOCKED` として隔離する。
 
 ## 現在地点の重要事項
 
-現在branchにはv1.1 foundation codeが既に入っているが、**完成版ではない**。
-
-特に以下を誤ってDONE扱いしないこと。
-
-- `FieldTravelRouter` はAethernet基礎ありだが、BOCCHI graph/traversal完全移植ではない。
-- `UseReturnRouting` はconfigにあるがReturn route未完成。
-- `EnemyStrengthResolver` は名前/region fallback主体で、raw icon mappingは実機未確定。
-- Survival auto-useは基礎ありだがInitialize/Cache transfer/rollback/refillは未完成。
-- Test build関連ファイルはあるが、各実装commit後にversion/manifest/CIを確認する必要がある。
+- Debug / Release build、test ZIP、manifest version検証、test repository publishまでCI成功済み。
+- BOCCHI-style Direct / Aethernet / Return 経路は実装済み。ただし歩行コストはfull BOCCHI graphではなくBBR adapterの水平距離近似を残している。
+- 敵 I〜V/★ は名前/region fallbackで安全側に判定でき、unknownも危険扱い。raw icon直接対応だけ未確定。
+- Survival auto-use、Reraiser risk-window、role別閾値、mounted invariantは実装済み。
+- Lost Finds Cache/Holsterの読み取り・target planning・low-watermark評価は実装済み。
+- **最大の残blockerはCache↔Holsterの正規サーバー転送手段**。公開ClientStructs/公開Dalamud実装から確定できず、推測callbackや直接memory writeは行わない。
 
 ## Task Packet一覧
 
-| Packet | Status | 内容 | 主な既存コード/備考 |
+| Packet | Status | 内容 | 現状 |
 |---|---|---|---|
-| P0-01 | TODO | baseline audit + current build確認 | branchに多数の途中変更あり。最初にbuildを固定する |
-| P1-01 | PARTIAL | AGPL/notice検証 | `LICENSE`, `THIRD-PARTY-NOTICES.md` は既に変更あり |
-| P1-02 | PARTIAL | Test version 1.0.90.x統一 | `test-build.yml`, `pluginmaster-test.json`, `dist-test` 基礎あり |
-| P2-01 | PARTIAL | Vendored BOCCHI traversal model | `Vendor/BOCCHI/NavigationConstants.cs` のみ明確に導入済み。現routerは距離近似 |
-| P2-02 | TODO | ReturnTeleportWalk | config fieldのみ。route mode未実装 |
-| P2-03 | PARTIAL | route retry / blacklist | `Movement` stall recoveryは既存。v1.1 route-level blacklist要確認/完成必要 |
-| P2-04 | TODO | manual movement yield | 未完 |
-| P3-01 | PARTIAL | enemy rank diagnostics/live data | `EnemyStrengthResolver` raw pair取得基礎あり。実機採取未完 |
-| P3-02 | BLOCKED | direct rank mapping判断 | P3-01実機データ待ち |
-| P3-03 | PARTIAL | danger rank integration/overlay | `AggroAvoidance` rank連携基礎あり。overlay未完 |
-| P4-01 | PARTIAL | remote CE signup/commence state | `SignUpRunner`変更あり。実機でremote signup flow要検証 |
-| P4-02 | PARTIAL | ActivityPlanner | `TargetSelector`変更あり。独立planner/最終優先順は未確定実装 |
-| P4-03 | TODO | RelicFarmPlanner continuation | 未完 |
-| P4-04 | PARTIAL | farm target staging | 既存IdleSpotあり。aetheryte最適stagingへ完成必要 |
-| P5-01 | RESEARCH | Cache/Holster transfer特定 | 最大blocker。直接memory write禁止 |
-| P5-02 | BLOCKED | HolsterInventory abstraction | P5-01待ち |
-| P5-03 | BLOCKED | Initialize正常系 | P5-02待ち |
-| P5-04 | BLOCKED | Initialize rollback | P5-03待ち |
-| P6-01 | PARTIAL | low-watermark model | survival/config基礎あり。Supply manager未実装 |
-| P6-02 | BLOCKED | differential refill | transfer API待ち |
-| P6-03 | BLOCKED | Supply vs CE arbitration | Supply manager待ち |
-| P7-01 | PARTIAL | Reraiser risk-window | `SurvivalPolicy` priorityあり。crossing semantics要完成 |
-| P7-02 | PARTIAL | Essence Initialize integration | policyあり、Initialize待ち |
-| P7-03 | PARTIAL | mounted invariant | `HolsterDriver` はmounted時Abandon/skip実装済み。テスト追加が必要 |
-| P8-01 | TODO | TextAdvance wrapper | 未完 |
-| P8-02 | TODO | DeathRecovery state machine | 未完 |
-| P8-03 | BLOCKED | TextAdvance live test | P8-01/02待ち |
-| P9-01 | TODO | DependencySupervisor abstraction | 未完 |
-| P9-02 | TODO | required 60s recovery | 未完 |
-| P9-03 | TODO | timeout safe stop | 未完 |
-| P9-04 | PARTIAL | Lifestream optional policy | routerは即fallback基礎あり。30s context policy未完 |
-| P10-01 | RESEARCH | social request dialog識別 | 未完 |
-| P10-02 | BLOCKED | strict social reject | P10-01待ち |
-| P10-03 | BLOCKED | false positive live test | P10-02待ち |
-| P11-01 | PARTIAL | UI tab再編 | `ConfigWindow`変更あり。最終6カテゴリ未確認 |
-| P11-02 | PARTIAL | main status | `MainWindow`変更あり。全診断項目未完 |
-| P11-03 | TODO | DiagnosticsRecorder | 未完 |
-| P11-04 | TODO | clipboard diagnostics | 未完 |
-| P11-05 | TODO | debug world overlay | 未完 |
-| P11-06 | PARTIAL | visible English全日本語化 | localization変更あり。未翻訳残存を全走査する必要あり |
-| P12-01 | TODO | config migration function | config Version更新基礎あり。明示migration要確認 |
-| P12-02 | TODO | character state split | 未完 |
-| P12-03 | TODO | migration failure backup | 未完 |
-| P13-01 | TODO | weekly BOCCHI monitor | 未完 |
-| P14-01 | PARTIAL | Test repository publish | manifest/ZIP/workflow基礎あり。実update検証必要 |
-| P14-02 | TODO | stable fallback案内 | 未完 |
-| P15-01 | BLOCKED | 南方受入 | 機能完成待ち |
-| P15-02 | BLOCKED | ザトゥノル受入 | 機能完成待ち |
-| P15-03 | BLOCKED | cross-cutting受入 | 機能完成待ち |
-| P15-04 | BLOCKED | RC review/user approval | 全受入待ち |
+| P0-01 | DONE | baseline audit + build確認 | CI `33507069575` Debug/Release/package成功 |
+| P1-01 | PARTIAL | AGPL/notice検証 | AGPL化・BBR/BOCCHI/Ocelot notice反映済み。最終license auditのみ残す |
+| P1-02 | DONE | Test version 1.0.90.x統一 | workflow/manifest/assembly/package version同期・publish成功 |
+| P2-01 | PARTIAL | Vendored BOCCHI traversal model | BOCCHI constants/Return semanticsをvendor化。full graph importは未完 |
+| P2-02 | PARTIAL | ReturnTeleportWalk | `FieldTravelRouter.Returning`、Return確認、base→Aethernet→walk実装済み |
+| P2-03 | PARTIAL | route retry / blacklist | Movement stall recovery + route retry基礎あり。spawn lifetime blacklist最終監査残り |
+| P2-04 | PARTIAL | manual movement yield | `ManualMovementYield.cs` 導入済み。最終controller監査残り |
+| P3-01 | WAITING_LIVE_TEST | enemy rank raw diagnostics | raw `NamePlateIconId` / `CharacterData.Icon`取得・学習基盤済み |
+| P3-02 | BLOCKED | direct raw rank mapping | raw pair実データが得られるまで固定mappingしない |
+| P3-03 | PARTIAL | danger rank integration/overlay | IV/V/★/unknown回避は実装済み。debug overlay残り |
+| P4-01 | PARTIAL | remote CE signup/commence state | 遠隔signup/commence state実装済み。最終ゲーム挙動のみ未確定 |
+| P4-02 | PARTIAL | ActivityPlanner | route-cost、80% cutoff、大規模戦闘最優先、Relic filter実装済み |
+| P4-03 | DONE | RelicFarmPlanner continuation | `RelicFarmCoordinator` + current-territory auto-continue実装・build済み |
+| P4-04 | PARTIAL | farm target staging | farm対象不在時のAethernet staging実装済み |
+| P5-01 | RESEARCH | Cache/Holster transfer特定 | `docs/research/lost-finds-cache-transfer.md`。公開手段未発見 |
+| P5-02 | PARTIAL | HolsterInventory abstraction | `LostItemBoxInventory`, snapshot, `SurvivalLoadoutPlanner` 実装済み |
+| P5-03 | BLOCKED | Initialize正常系 | target planningまでは完成。transfer effectのみP5-01待ち |
+| P5-04 | BLOCKED | Initialize rollback | snapshot/transaction設計済み。実transfer確定待ち |
+| P6-01 | PARTIAL | low-watermark model | `SupplyManager` + target counts実装済み |
+| P6-02 | BLOCKED | differential refill | transfer effect待ち |
+| P6-03 | PARTIAL | Supply vs CE arbitration | evaluator/要件あり。実refill effect待ち |
+| P7-01 | DONE | Reraiser risk-window | emergencyへのedgeで1回のみ候補化、CI build済み |
+| P7-02 | PARTIAL | Essence Initialize integration | priority/bring/autouse/overwrite policyあり。transfer待ち |
+| P7-03 | DONE | mounted invariant | mounted中survival Lost Actionを発火しない |
+| P8-01 | DONE | TextAdvance wrapper | `External/TextAdvanceIpc.cs` 実装済み |
+| P8-02 | PARTIAL | DeathRecovery state machine | CE待機、30s/10s、Return+TextAdvance委譲実装済み |
+| P8-03 | WAITING_LIVE_TEST | TextAdvance death flow | 最終ゲーム挙動のみ未確認 |
+| P9-01 | DONE | DependencySupervisor abstraction | `DependencySupervisor.cs` 実装済み |
+| P9-02 | DONE | required 60s recovery | required依存の60秒復帰窓実装済み |
+| P9-03 | PARTIAL | timeout safe stop | `SafeStopCoordinator` 導入済み。最終状態遷移監査残り |
+| P9-04 | PARTIAL | Lifestream optional policy | event travel即fallback実装。非緊急30s policy最終監査残り |
+| P10-01 | DONE | social request識別 | Party agent強識別 + prompt subject/request二重判定を実装 |
+| P10-02 | PARTIAL | strict social reject | Running中のみNo、generic YesNoは拒否しない |
+| P10-03 | WAITING_LIVE_TEST | false positive確認 | 最終ゲーム表示差分のみ未確認 |
+| P11-01 | PARTIAL | UI tab再編 | 日本語設定UI拡張済み。6カテゴリ最終整理残り |
+| P11-02 | PARTIAL | main status | route/CE/dependency/survival表示を拡張済み |
+| P11-03 | TODO | DiagnosticsRecorder | warning/state transition ring buffer未実装 |
+| P11-04 | DONE | clipboard diagnostics | 個人情報を除外した診断コピー実装・CI build済み |
+| P11-05 | TODO | debug world overlay | 未実装 |
+| P11-06 | PARTIAL | visible English全日本語化 | `Loc` は日本語固定。残存literal全走査が必要 |
+| P12-01 | DONE | config migration | schema v4 migration + threshold/nav normalization実装・CI build済み |
+| P12-02 | DONE | character state split | Relic farm targetを`PlayerState.ContentId`単位で保存・CI build済み |
+| P12-03 | TODO | migration failure backup | 未実装 |
+| P13-01 | DONE | weekly BOCCHI monitor | `.github/workflows/check-bocchi-upstream.yml` 導入済み |
+| P14-01 | DONE | Test repository publish | `1.0.90.4` ZIP/manifestをCIでpublish済み |
+| P14-02 | DONE | stable fallback案内 | test build UIへStable復帰手順を追加・CI build済み |
+| P15-01 | WAITING_LIVE_TEST | 南方受入 | 最終受入まで延期。通常開発を止めない |
+| P15-02 | WAITING_LIVE_TEST | ザトゥノル受入 | 同上 |
+| P15-03 | WAITING_LIVE_TEST | cross-cutting受入 | 同上 |
+| P15-04 | BLOCKED | RC review/user approval | main merge前の最終工程。自動merge禁止 |
 
-## 現在確認できているv1.1 foundation
+## CI evidence
 
-### Navigation
+### 2026-09-01 v1.0.90.4 validation
 
-存在:
+- workflow: `Build v1.1 test repository`
+- run: `33507069575`
+- packet application: pass
+- diff check: pass
+- restore: pass
+- Debug build: pass
+- Release build: pass
+- test package: pass
+- assembly version verification: pass
+- artifact upload: pass
+- test repository publish: pass
+- validated bot commit: `4432000190e110a9f921b7dd946ab9578fc7bce9`
 
-- `Automation/FieldTravelRouter.cs`
-- `External/LifestreamIpc.cs`
-- `Game/FieldAethernet.cs`
-- `Vendor/BOCCHI/NavigationConstants.cs`
+## 技術調査
 
-現在のrouter mode:
+### Lost Finds Cache transfer
 
-- Direct
-- WalkToAetheryte
-- Teleporting
-- WalkFromAetheryte
-- FallbackDirect
+成果物: `docs/research/lost-finds-cache-transfer.md`
 
-未実装として扱う:
+確定事項:
 
-- Return route
-- full BOCCHI graph traversal
-- manual input yield
-- complete route blacklist lifecycle
+- `AgentMycItemBox.ItemBoxData` からCache/HolsterのActionId/Countはread可能。
+- ClientStructsに公開transfer member functionは無い。
+- `kaleidocli/BozjaBuddy` のMYCItemBox/MYCItemBagTrade実装も確認したが、自動転送callbackの根拠は得られなかった。
+- `MYCItemBox`, `MYCItemBag`, `MYCItemBagTrade` addonは確認済み。
+- server-backed countへの直接writeは禁止。
+- `MycItemBoxCallbackProbe` は実ゲーム自身のcallbackを採取するための診断手段として残す。
 
-### Enemy strength
+### Enemy rank
 
-存在:
+`EnemyStrengthResolver` は、raw mappingが無くても territory + region + English BNpcName seedでI〜V/★を判定できる。判定不能はunknown=危険とするため、安全側の自動周回は先行可能。
 
-- `Game/EnemyStrengthResolver.cs`
+## 次の実装優先順位
 
-既存仕様:
+ユーザー確認/実機確認を要求せず、以下を順次進める。
 
-- logical rank I/II/III/IV/V/Star/Unknown
-- IV/V/Star/Unknown = dangerous
-- Japanese clientでもEnglish BNpcNameでfallback可能
-- raw `NamePlateIconId` + `CharacterData.Icon` を取得可能
+1. P11-03 DiagnosticsRecorder / Warning history
+2. P11-06 visible English literal監査と日本語化
+3. P12-03 migration failure backup
+4. P2-03 route blacklist lifecycle監査/完成
+5. P9-03 safe-stop state transition監査
+6. P9-04 Lifestream context policy監査
+7. P11-05 debug overlay
+8. P1-01 license final audit
+9. Cache transferは公開根拠の探索を継続するが、他作業を止めない
 
-未確定:
+## 実機検証方針
 
-- raw pairがrankを直接表すか
-- 実機で全rankを観測した証拠
+実機確認は途中の通常ゲートにしない。最終RC付近でまとめて確認する。
 
-### Survival
+それ以前に実データが必要になった場合は、プラグイン側に診断採取機能を先に実装し、他タスクを継続する。
 
-存在:
+## main merge
 
-- `Game/SurvivalPolicy.cs`
-- `Automation/HolsterDriver.cs` survival path
-
-確認できる設計反映:
-
-- role threshold Tank 55/30, Healer 70/45, DPS 65/40
-- Deep essence default false
-- mounted時auto survival抑止
-- Potion Kit maintain
-- moving on footではcast healを避ける
-
-未実装/未完:
-
-- full Initialize
-- Cache transfer
-- rollback
-- differential refill
-- low-watermark coordinator
-
-## Research成果物予定
-
-| Research | Path | Status |
-|---|---|---|
-| Enemy I〜V/★ mapping | `docs/research/bozja-enemy-strength.md` | TODO |
-| Lost Finds Cache transfer | `docs/research/lost-finds-cache-transfer.md` | TODO |
-| Social request dialogs | `docs/research/social-request-dialogs.md` | TODO |
-| TextAdvance integration notes | `docs/research/textadvance-death-recovery.md` | TODO |
-
-## 実機検証記録予定
-
-最終的に以下へ結果を残す。
-
-```text
-docs/test-results/
-  v1.0.90.x-southern-front.md
-  v1.0.90.x-zadnor.md
-  v1.0.90.x-cross-cutting.md
-```
-
-各結果には最低限:
-
-- plugin version
-- commit SHA
-- territory
-- job/role
-- scenario
-- expected
-- actual
-- pass/fail
-- relevant English logs
-- screenshot/log note（必要な場合）
-
-を記録する。
-
-## 次にやるべきPacket
-
-**P0-01: baseline audit + build確認**
-
-理由:
-
-現在branchは既に複数のfoundation実装が混在している。これ以上機能を足す前に、一度「現在headがコンパイルする」ことを固定しないと、後続Packetで発生したcompile errorとの区別がつかない。
-
-P0-01がDONEになった後、並行可能な安全な次候補:
-
-- P1-01 license audit
-- P1-02 version/test repo整理
-- P3-01 enemy diagnostics強化（ただし完了はLIVE待ち）
-- P5-01 Cache transfer research
-- P10-01 social dialog research
-
-実装依存の大きいP5-03等へ先に飛ばないこと。
-
-## 更新ルール
-
-各Packet完了時、このファイルの該当Statusを更新し、以下を末尾へ追記する。
-
-```text
-### YYYY-MM-DD P?-??
-- status: DONE / WAITING_LIVE_TEST / BLOCKED
-- commit: <sha>
-- build: pass/fail + run id if available
-- summary: ...
-- next: ...
-```
-
-## 作業ログ
-
-### 2026-09-01 Documentation baseline
-
-- requirement fixed after grill-me interview
-- detailed design added
-- timeout-safe execution plan added
-- progress tracker initialized
-- code implementation was intentionally not expanded in this documentation pass
+`main` には自動mergeしない。最終RC結果を提示し、ユーザーの明示承認後のみmergeする。

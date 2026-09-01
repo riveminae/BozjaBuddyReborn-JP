@@ -1,17 +1,26 @@
 from __future__ import annotations
 
 import pathlib
+import re
 import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 PACKETS = pathlib.Path(__file__).resolve().parent
+PACKET_RE = re.compile(r"^p(\d+)_(\d+)_")
+
+
+def packet_key(path: pathlib.Path) -> tuple[int, int, str]:
+    match = PACKET_RE.match(path.name)
+    if not match:
+        return (10_000, 10_000, path.name)
+    return (int(match.group(1)), int(match.group(2)), path.name)
 
 
 def main() -> int:
     scripts = sorted(
-        p for p in PACKETS.glob("p*.py")
-        if p.name != pathlib.Path(__file__).name
+        (p for p in PACKETS.glob("p*.py") if p.name != pathlib.Path(__file__).name),
+        key=packet_key,
     )
     if not scripts:
         print("No packet patches to apply.")

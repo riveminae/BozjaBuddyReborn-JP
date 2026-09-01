@@ -209,7 +209,7 @@ public sealed class SurvivalLoadoutPlanner(Configuration config, LostActionCatal
         IDictionary<byte, int> planned,
         ref int totalWeight)
     {
-        var current = planned.GetValueOrDefault(entry.RowId);
+        var current = planned.TryGetValue(entry.RowId, out var existing) ? existing : 0;
         var max = entry.MaxHeld > 0 ? Math.Min(available, entry.MaxHeld) : available;
         var target = Math.Min(desired, max);
         while (current < target && entry.Weight > 0 && totalWeight + entry.Weight <= HolsterCapacity)

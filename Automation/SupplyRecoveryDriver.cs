@@ -5,8 +5,8 @@ using ECommons.DalamudServices;
 namespace BozjaBuddyReborn.Automation;
 
 /// <summary>
-/// Gets a critically depleted character back to the Lost Finds Cache without pretending the
-/// unresolved Cache <-> Holster transfer primitive is solved.
+/// Gets a depleted character back to the Lost Finds Cache without pretending the unresolved
+/// Cache <-> Holster transfer primitive is solved.
 ///
 /// This class owns only the safe, already-proven effects: BOCCHI-style field travel, dismount at
 /// the destination, and an ordinary world-object interaction. Once the cache is open it waits.
@@ -28,12 +28,14 @@ public sealed class SupplyRecoveryDriver(Movement movement)
     public string Status { get; private set; } = string.Empty;
 
     /// <summary>
-    /// Run one recovery tick. Returns true while this driver owns the controller's objective.
-    /// The caller is responsible for disabling combat/approach before calling.
+    /// Run one supply-trip tick. Critical trips interrupt immediately; routine trips are started
+    /// by the controller only after the current skirmish is complete. Returns true while this
+    /// driver owns the controller's objective. The caller disables combat/approach first.
     /// </summary>
-    public bool Tick()
+    public bool Tick(bool critical = true)
     {
         Active = true;
+        var label = critical ? "緊急補給" : "定期補給";
 
         var me = Svc.Objects.LocalPlayer;
         if (me == null)
@@ -44,12 +46,12 @@ public sealed class SupplyRecoveryDriver(Movement movement)
 
         // Once the interaction succeeds, do not hammer the object every controller tick. The
         // cache window is now the correct place to be; SupplyManager will release this state as
-        // soon as inventory actually contains a recovery path again.
+        // soon as inventory actually contains the requested reserve again.
         if (_cacheOpened)
         {
             _movement.Stop();
             Status =
-                "Lost Finds Cacheを開いて補給待機中です。Cache↔Holsterの安全な自動転送手段が確定するまで、この位置を維持します。";
+                $"Lost Finds Cacheを開いて{label}待機中です。Cache↔Holsterの安全な自動転送手段が確定するまで、この位置を維持します。";
             return true;
         }
 
@@ -62,8 +64,8 @@ public sealed class SupplyRecoveryDriver(Movement movement)
             {
                 _movement.TravelTo(cache.Position, CacheInteractRange - 0.5f, waitForOptionalDependencies: true);
                 Status = _movement.TravelMode == FieldTravelMode.WaitingForLifestream
-                    ? "緊急補給のためLost Finds Cacheへ戻ります。Lifestreamの復帰を最大30秒待っています。"
-                    : $"緊急補給のためLost Finds Cacheへ移動中です（残り {distance:F0}y / {_movement.RouteDescription}）。";
+                    ? $"{label}のためLost Finds Cacheへ戻ります。Lifestreamの復帰を最大30秒待っています。"
+                    : $"{label}のためLost Finds Cacheへ移動中です（残り {distance:F0}y / {_movement.RouteDescription}）。";
                 return true;
             }
 
@@ -88,8 +90,9 @@ public sealed class SupplyRecoveryDriver(Movement movement)
             if (Interactables.Interact(cache))
             {
                 _cacheOpened = true;
-                Status = "Lost Finds Cacheを開きました。補給処理を待っています。";
-                Svc.Log.Information("[BozjaBuddyReborn] Critical supply recovery reached and opened Lost Finds Cache.");
+                Status = $"Lost Finds Cacheを開きました。{label}処理を待っています。";
+                Svc.Log.Information(
+                    $"[BozjaBuddyReborn] {(critical ? "Critical" : "Routine")} supply recovery reached and opened Lost Finds Cache.");
             }
             else
             {
@@ -100,8 +103,8 @@ public sealed class SupplyRecoveryDriver(Movement movement)
 
         // The cache is not streamed yet. Route to the known base-camp aethernet position; once we
         // get close enough the real cache object appears and the branch above takes over. This is
-        // deliberately a non-urgent optional-dependency route: the skirmish was already abandoned,
-        // so waiting up to 30s for Lifestream can save a long cross-zone walk.
+        // deliberately a non-urgent optional-dependency route: the active skirmish has either been
+        // abandoned (critical) or already completed (routine), so up to 30s for Lifestream is OK.
         var camp = FieldAethernet.BaseCamp(Svc.ClientState.TerritoryType);
         if (camp is not { } baseCamp)
         {
@@ -120,8 +123,8 @@ public sealed class SupplyRecoveryDriver(Movement movement)
 
         _movement.TravelTo(baseCamp.Position, BaseCampArriveRange, waitForOptionalDependencies: true);
         Status = _movement.TravelMode == FieldTravelMode.WaitingForLifestream
-            ? "緊急補給のため拠点へ戻ります。Lifestreamの復帰を最大30秒待っています。"
-            : $"緊急補給のため拠点へ移動中です（残り {campDistance:F0}y / {_movement.RouteDescription}）。";
+            ? $"{label}のため拠点へ戻ります。Lifestreamの復帰を最大30秒待っています。"
+            : $"{label}のため拠点へ移動中です（残り {campDistance:F0}y / {_movement.RouteDescription}）。";
         return true;
     }
 

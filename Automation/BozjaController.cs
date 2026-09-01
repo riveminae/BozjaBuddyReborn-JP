@@ -498,8 +498,8 @@ public sealed class BozjaController
         // by itself, in which case the approach stands down and BossMod owns combat movement.)
         if (_approach.Tick(IsDodging(), _director.AvoidanceOwnsApproach) && _approach.ClosingOn is { } closing)
         {
-            Status = $"In \"{ce.Name}\" ({region}) - closing on {closing} " +
-                     $"({_approach.ShortfallYalms:F0}y out of range).";
+            Status = $"「{ce.Name}」で戦闘中（{region}）- {closing}へ接近中 " +
+                     $"（射程まであと{_approach.ShortfallYalms:F0}y）。";
         }
 
         _holster.Tick(Svc.Condition[ConditionFlag.InCombat]);

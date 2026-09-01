@@ -50,6 +50,9 @@ jobs:
       - name: Enforce v1.1 static contract
         run: python tools/validate_v110_contract.py
 
+      - name: Audit visible Japanese UI
+        run: python tools/audit_visible_japanese.py
+
       - name: Validate repository diff
         shell: pwsh
         run: |

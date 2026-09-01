@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Derived from KanoNoUta/BOCCHI commit 2f7026ae31712b1b969362a2831df8f795607736.
+// That repository is an AGPL-3.0 BOCCHI maintenance fork.
+
 using ECommons;
 using ECommons.UIHelpers.AddonMasterImplementations;
 using FFXIVClientStructs.FFXIV.Client.Game;
@@ -9,7 +13,7 @@ namespace BozjaBuddyReborn.Vendor.BOCCHI;
 /// Return confirmation flow.
 ///
 /// Upstream: KanoNoUta/BOCCHI commit 2f7026ae31712b1b969362a2831df8f795607736,
-/// itself a BOCCHI fork. BOCCHI is distributed under GNU AGPL-3.0; this fork is AGPL-3.0.
+/// itself a BOCCHI maintenance fork distributed under GNU AGPL-3.0.
 /// Only Return is retained because v1.1 uses it for BOCCHI-style traversal and death recovery.
 /// </summary>
 public static unsafe class GeneralActions

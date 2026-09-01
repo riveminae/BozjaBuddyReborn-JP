@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using System.Reflection;
+using System.Text;
 using BozjaBuddyReborn.Automation;
 using BozjaBuddyReborn.External;
 using BozjaBuddyReborn.Game;
@@ -130,6 +131,11 @@ public sealed class MainWindow : Window
         // to make visible.
         if (_config.AutoUseLostActions && _controller.LastLostAction.Length > 0)
             ImGui.TextColored(Grey, $"ロストアクション: {_controller.LastLostAction}");
+
+        if (ImGui.SmallButton("診断情報をコピー"))
+            ImGui.SetClipboardText(BuildDiagnostics());
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("現在の状態・依存関係・経路・CE状態を個人情報なしでコピーします。");
 
         DrawPartySupport();
         DrawZonePicker();
@@ -579,6 +585,38 @@ public sealed class MainWindow : Window
         }
 
         static string Age(float seconds) => seconds < 0f ? "(never)" : $"{seconds:F0}s ago";
+    }
+
+    private string BuildDiagnostics()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("BozjaBuddyReborn-JP diagnostics");
+        sb.AppendLine($"version={AssemblyVersion}");
+        sb.AppendLine($"territory={Svc.ClientState.TerritoryType}");
+        sb.AppendLine($"running={_controller.Running}");
+        sb.AppendLine($"state={_controller.State}");
+        sb.AppendLine($"status={_controller.Status}");
+        sb.AppendLine($"routeMode={_controller.TravelMode}");
+        sb.AppendLine($"route={_controller.TravelRoute}");
+        sb.AppendLine($"vnavmesh={_navmesh.Available}");
+        sb.AppendLine($"lifestream={_controller.LifestreamAvailable}");
+        sb.AppendLine($"rotationSolver={_director.RotationAvailable}");
+        sb.AppendLine($"bossMod={_director.AvoidanceAvailable}");
+        sb.AppendLine($"bossModFork={_director.Avoidance.Fork}");
+
+        var me = Svc.Objects.LocalPlayer;
+        if (me != null && me.MaxHp > 0)
+        {
+            sb.AppendLine($"hpPercent={me.CurrentHp * 100f / me.MaxHp:F1}");
+            sb.AppendLine($"role={SurvivalPolicy.CurrentRole()}");
+        }
+
+        sb.AppendLine($"ceCount={_controller.Engagements.Count}");
+        foreach (var ce in _controller.Engagements)
+            sb.AppendLine($"ce={ce.EventId},state={ce.State},left={ce.SecondsLeft},progress={ce.Progress}");
+
+        // Intentionally excluded: character name, world, chat, party member names and any free-form user text.
+        return sb.ToString();
     }
 
     private static string FormatSeconds(uint seconds)

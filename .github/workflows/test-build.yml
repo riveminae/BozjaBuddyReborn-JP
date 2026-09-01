@@ -25,8 +25,16 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Apply v1.1 source patch
-        run: python tools/apply_v110_foundation.py
+      - name: Apply v1.1 source patches
+        run: |
+          python tools/apply_v110_foundation.py
+          python tools/apply_v110_survival.py
+
+      - name: Apply AGPL-3.0 distribution license
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/OhKannaDuh/BOCCHI/7847b00c313d6a7ddfe9ee126e46e10f547db9da/LICENSE' -OutFile LICENSE
 
       - name: Validate patch
         shell: pwsh
@@ -67,9 +75,9 @@ jobs:
               "Author": "Bozja Buddy Reborn contributors / JP fork by riveminae",
               "Name": "Bozja Buddy Reborn JP TEST",
               "InternalName": "BozjaBuddyReborn",
-              "AssemblyVersion": "1.0.90.1",
-              "TestingAssemblyVersion": "1.0.90.1",
-              "Description": "v1.1 開発テスト版。BOCCHI方式のフィールド移動、Lifestreamによる南方ボズヤ戦線/ザトゥノル内の簡易テレポ、CE遠隔参加フローを検証します。Stable版repoと同時に有効化しないでください。",
+              "AssemblyVersion": "1.0.90.2",
+              "TestingAssemblyVersion": "1.0.90.2",
+              "Description": "v1.1 開発テスト版。BOCCHI方式のフィールド移動、Lifestream簡易テレポ、CE遠隔参加、IV/V/★敵回避、生存優先Lost Actionを検証します。Stable版repoと同時に有効化しないでください。",
               "Punchline": "Bozja Buddy Reborn JP v1.1 実機テスト版",
               "ApplicableVersion": "any",
               "DalamudApiLevel": 15,
@@ -77,7 +85,7 @@ jobs:
               "CategoryTags": ["utility"],
               "RepoUrl": "https://github.com/riveminae/BozjaBuddyReborn-JP",
               "IconUrl": "",
-              "Changelog": "1.0.90.1 - v1.1 foundation: remote CE registration and BOCCHI-style Walk/Aethernet/Walk routing.",
+              "Changelog": "1.0.90.2 - survival/rank test: IV/V/★ avoidance, mounted-action guard, role HP thresholds, Potion Kit/Reraiser/heal/Manawall survival policy, Japanese UI foundation.",
               "IsHide": false,
               "IsTestingExclusive": false,
               "AcceptsFeedback": true,
@@ -108,6 +116,10 @@ jobs:
           }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Configuration.cs Plugin.cs Automation/Movement.cs Automation/TargetSelector.cs Automation/BozjaController.cs Automation/SignUpRunner.cs BozjaBuddyReborn.csproj dist-test/BozjaBuddyReborn.zip pluginmaster-test.json
-          git commit -m 'feat: apply validated v1.1 navigation foundation'
+          git add Configuration.cs Localization.cs Plugin.cs LICENSE THIRD-PARTY-NOTICES.md BozjaBuddyReborn.csproj
+          git add Automation/Movement.cs Automation/TargetSelector.cs Automation/BozjaController.cs Automation/SignUpRunner.cs Automation/AggroAvoidance.cs Automation/HolsterDriver.cs
+          git add Game/SurvivalPolicy.cs Game/EnemyStrengthResolver.cs External/LifestreamIpc.cs Game/FieldAethernet.cs Vendor/BOCCHI/NavigationConstants.cs Automation/FieldTravelRouter.cs
+          git add Windows/MainWindow.cs Windows/ConfigWindow.cs
+          git add dist-test/BozjaBuddyReborn.zip pluginmaster-test.json
+          git commit -m 'feat: apply validated v1.1 survival and rank automation'
           git push origin HEAD:feat/bocchi-navigation

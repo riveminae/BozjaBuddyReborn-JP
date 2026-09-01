@@ -1,0 +1,24 @@
+[
+  {
+    "Author": "Bozja Buddy Reborn contributors / JP fork by riveminae",
+    "Name": "Bozja Buddy Reborn JP TEST",
+    "InternalName": "BozjaBuddyReborn",
+    "AssemblyVersion": "1.0.90.1",
+    "TestingAssemblyVersion": "1.0.90.1",
+    "Description": "v1.1 開発テスト版。BOCCHI方式のフィールド移動、Lifestreamによる南方ボズヤ戦線/ザトゥノル内の簡易テレポ、CE遠隔参加フローを検証します。Stable版repoと同時に有効化しないでください。",
+    "Punchline": "Bozja Buddy Reborn JP v1.1 実機テスト版",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 15,
+    "Tags": ["bozja", "zadnor", "automation", "japanese", "testing"],
+    "CategoryTags": ["utility"],
+    "RepoUrl": "https://github.com/riveminae/BozjaBuddyReborn-JP",
+    "IconUrl": "",
+    "Changelog": "1.0.90.1 - v1.1 foundation: remote CE registration and BOCCHI-style Walk/Aethernet/Walk routing.",
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "AcceptsFeedback": true,
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip"
+  }
+]

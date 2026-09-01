@@ -71,7 +71,7 @@ public sealed class Plugin : IDalamudPlugin
         _navmesh = new NavmeshIpc(pluginInterface);
         _director = new CombatDirector(pluginInterface, _config);
         _aggroAvoidance = new AggroAvoidance(_config);
-        _movement = new Movement(_navmesh, _config, _aggroAvoidance);
+        _movement = new Movement(_navmesh, _config, _aggroAvoidance, pluginInterface);
         _approach = new CombatApproach(_navmesh, _config);
         _regions = new RegionResolver(_config);
         _selector = new TargetSelector(_catalog, _config, _regions);

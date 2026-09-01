@@ -139,6 +139,7 @@ public sealed class SignUpRunner
 
     /// <summary>The engagement we are signing up FOR, latched by id rather than by list slot.</summary>
     private ushort _targetEventId;
+    private ushort _preferredEventId;
 
     public bool Active { get; private set; }
     public SignUpPhase Phase { get; private set; } = SignUpPhase.Idle;
@@ -150,7 +151,7 @@ public sealed class SignUpRunner
     /// </summary>
     public IReadOnlyList<string> LastButtons { get; private set; } = [];
 
-    public void Begin()
+    public void Begin(ushort preferredEventId = 0)
     {
         Active = true;
         Phase = SignUpPhase.Opening;
@@ -164,10 +165,11 @@ public sealed class SignUpRunner
         _lapsedSinceMs = 0;
         _readySinceMs = 0;
         _targetEventId = 0;
+        _preferredEventId = preferredEventId;
         _loggedButtons = string.Empty;
         LastButtons = [];
         Status = Loc.T("Opening the Resistance Recruitment window.", "ボズヤファインダーを開いています。");
-        Svc.Log.Information("[BozjaBuddyReborn] Sign-up: begin.");
+        Svc.Log.Information($"[BozjaBuddyReborn] Sign-up: begin (preferred CE #{_preferredEventId}).");
     }
 
     public void Cancel(string reason = "Sign-up cancelled.")
@@ -463,7 +465,12 @@ public sealed class SignUpRunner
 
         if (Find(buttons, RegisterLabels) is { } register)
         {
-            _targetEventId = FirstRegisteringEventId();
+            var first = FirstRegisteringEventId();
+            _targetEventId = _preferredEventId != 0 ? _preferredEventId : first;
+            if (_preferredEventId != 0 && first != 0 && first != _preferredEventId)
+                Svc.Log.Warning(
+                    $"[BozjaBuddyReborn] Preferred CE #{_preferredEventId} differs from the first recruitment row #{first}; " +
+                    "using the current button order for this test build. Capture callback/button diagnostics before tightening row targeting.");
 
             if (Click(addon, register, "Register"))
                 Advance(SignUpPhase.AwaitingSelection, Loc.T("Registered - waiting for the draw.", "参加申請済み - 抽選結果を待っています。"));

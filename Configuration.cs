@@ -20,7 +20,7 @@ public enum TravelAggroResponse : byte
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
 
     // --- combat roles -------------------------------------------------------
     // The split is the design: BossMod dodges, RSR presses buttons. Both default on.
@@ -172,13 +172,37 @@ public sealed class Configuration : IPluginConfiguration
 
     // --- movement -----------------------------------------------------------
 
-    /// <summary>Allow vnavmesh to fly. Bozja and Zadnor both permit flight.</summary>
-    public bool AllowFlight = true;
-
     /// <summary>
-    /// Summon a mount for long hauls. Neither field zone has an aetheryte, so mount travel is
-    /// the only fast travel available - with this off, the character jogs the whole map.
+    /// Compatibility field retained for migration from 1.0.x. Save the Queen field zones are
+    /// ground-only; v1.1 never asks vnavmesh for a flying path.
     /// </summary>
+    public bool AllowFlight = false;
+
+    /// <summary>Use the BOCCHI-derived field travel planner instead of legacy direct paths.</summary>
+    public bool UseBocchiNavigation = true;
+
+    /// <summary>Use the Bozja/Zadnor custom aethernet through optional Lifestream IPC.</summary>
+    public bool UseAethernetTravel = true;
+
+    /// <summary>Allow Return -> base camp routes when that leg becomes available in the planner.</summary>
+    public bool UseReturnRouting = true;
+
+    /// <summary>Emergency escape hatch retained in stable builds.</summary>
+    public bool LegacyMovement;
+
+    /// <summary>BOCCHI default: walk directly when the goal is within this many yalms.</summary>
+    public float NavigationMaxDirectWalkDistance = 80f;
+
+    /// <summary>BOCCHI yalm-equivalent cost assigned to one custom-aethernet hop.</summary>
+    public float NavigationAethernetHopCost = 50f;
+
+    /// <summary>BOCCHI yalm-equivalent cost assigned to Return.</summary>
+    public float NavigationReturnCost = 40f;
+
+    /// <summary>Do not choose a fresh skirmish already at or above this progress.</summary>
+    public byte NewSkirmishMaxProgress = 80;
+
+    /// <summary>Summon a mount for long ground hauls.</summary>
     public bool UseMount = true;
 
     /// <summary>How close to the engagement centre to stand before considering ourselves there.</summary>

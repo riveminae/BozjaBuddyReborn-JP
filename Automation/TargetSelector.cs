@@ -127,7 +127,7 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         // Skirmishes and Critical Engagements in the same Zadnor plateau drop DIFFERENT items,
         // so the activity filter is checked before the objective type is even considered.
         var (_, requiredActivity) = Restriction;
-        var wantCe = _config.DoCriticalEngagements && requiredActivity != DropActivity.Skirmish;
+        var wantCe = false; // CE registration is remote; BozjaController/SignUpRunner owns it.
         var wantFate = _config.DoFates && requiredActivity != DropActivity.CriticalEngagement;
 
         if (wantCe)
@@ -201,6 +201,37 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         return region == requiredRegion;
     }
 
+    /// <summary>
+    /// Pick the single CE to register for remotely. Large-scale engagements, when explicitly
+    /// enabled, outrank every other CE; otherwise the current relic filter and configured
+    /// PriorityEngagements determine eligibility/rank.
+    /// </summary>
+    public CeSnapshot? SelectRegistration(IReadOnlyList<CeSnapshot> engagements, bool deterministic)
+    {
+        CeSnapshot? best = null;
+        var bestRank = int.MaxValue;
+        var bestDistance = float.MaxValue;
+
+        foreach (var ce in engagements)
+        {
+            if (!IsEligible(ce))
+                continue;
+
+            var largeScale = _catalog.IsLargeScale(ce.EventId);
+            var rank = largeScale ? int.MinValue : PriorityRank(ce.EventId);
+            var distance = ce.HasPosition ? Movement.DistanceToPlayer(ce.Position) : float.MaxValue;
+
+            if (best == null || Better(rank, ce.EventId, distance, bestRank, best.Value.EventId, bestDistance, deterministic))
+            {
+                best = ce;
+                bestRank = rank;
+                bestDistance = distance;
+            }
+        }
+
+        return best;
+    }
+
     private Choice SelectEngagement(IReadOnlyList<CeSnapshot> engagements, bool deterministic)
     {
         CeSnapshot? best = null;
@@ -268,10 +299,12 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         if (ce.IsDuel && !_config.EngageDuels)
             return false;
 
-        if (_catalog.IsLargeScale(ce.EventId) && !_config.EngageLargeScale)
+        var largeScale = _catalog.IsLargeScale(ce.EventId);
+        if (largeScale && !_config.EngageLargeScale)
             return false;
 
-        // The game refuses registration under 10 seconds; require enough margin to also travel.
+        // The game refuses registration under 10 seconds; remote registration still keeps a
+        // small UI margin, but no travel margin is needed any more.
         if (ce.SecondsLeft < (uint)_config.MinRegisterSecondsLeft)
             return false;
 
@@ -279,8 +312,9 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         if (!ce.HasPosition)
             return false;
 
-        // Region/activity gate for the current farm target.
-        if (!PassesFarmFilter(ObjectiveKind.CriticalEngagement, ce.EventId, ce.Position,
+        // Explicitly-enabled Castrum/Dalriada are absolute priority by requirement and bypass
+        // a Resistance Relic filter. Ordinary CEs remain constrained by the selected material.
+        if (!largeScale && !PassesFarmFilter(ObjectiveKind.CriticalEngagement, ce.EventId, ce.Position,
                 DropActivity.CriticalEngagement))
             return false;
 
@@ -307,7 +341,7 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
                     continue;
 
                 // Skip one that is effectively over - joining at 100% earns nothing.
-                if (fate.Progress >= 100)
+                if (fate.Progress >= _config.NewSkirmishMaxProgress)
                     continue;
 
                 if (_config.BlockedEngagements.Contains(fate.FateId))

@@ -315,6 +315,11 @@ public sealed class BozjaController
         Engagements = CriticalEngagements.Read(_catalog);
         CurrentRegion = FieldRegions.Current();
 
+        // Critical Engagements are a remote UI workflow, not a travel objective. Register while
+        // continuing the current skirmish; SignUpRunner will press Commence immediately if this
+        // box wins the draw. This is intentionally before objective selection.
+        TickAutomaticCeRegistration();
+
         // --- already registered and fighting -------------------------------
         var current = CriticalEngagements.Current(_catalog);
         if (current is { } ce && ce.IsLive)
@@ -359,6 +364,25 @@ public sealed class BozjaController
         _lastObjective = objective;
 
         RunTravel(objective);
+    }
+
+    private void TickAutomaticCeRegistration()
+    {
+        if (!_config.DoCriticalEngagements || _signUps.Active)
+            return;
+
+        // Once registered, the existing SignUpRunner owns the lottery/Commence state. Starting
+        // a second attempt here would reopen the window and risk withdrawing the first one.
+        if (CriticalEngagements.RegisteredEventId is { } registered && registered != 0)
+            return;
+
+        var selected = _selector.SelectRegistration(Engagements, deterministic: _config.MultiboxEnabled);
+        if (selected is not { } ce)
+            return;
+
+        _signUps.Begin(ce.EventId);
+        Svc.Log.Information(
+            $"[BozjaBuddyReborn] Auto-registering remotely for CE #{ce.EventId} \"{ce.Name}\"; no travel to CE marker required.");
     }
 
     // ------------------------------------------------------------- engagement
@@ -1020,6 +1044,7 @@ public sealed class BozjaController
         // re-broadcast to the whole group every tick in the meantime. Stickiness exists to stop
         // the runner being yanked off a fight it is already in, not to outrank the filter.
         if (_config.StickyObjective
+            && _lastObjective.Kind != ObjectiveKind.CriticalEngagement
             && IsObjectiveStillWorthDoing(_lastObjective)
             && _selector.StillPermitted(_lastObjective.Kind, _lastObjective.Id, _lastObjective.Position))
         {

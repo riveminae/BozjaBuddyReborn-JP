@@ -132,6 +132,10 @@ public sealed class MainWindow : Window
         if (_config.AutoUseLostActions && _controller.LastLostAction.Length > 0)
             ImGui.TextColored(Grey, $"ロストアクション: {_controller.LastLostAction}");
 
+        var latestWarning = DiagnosticsRecorder.LatestWarning;
+        if (!string.IsNullOrWhiteSpace(latestWarning))
+            ImGui.TextColored(Yellow, $"直近の警告: {latestWarning}");
+
         if (ImGui.SmallButton("診断情報をコピー"))
             ImGui.SetClipboardText(BuildDiagnostics());
         if (ImGui.IsItemHovered())
@@ -614,6 +618,14 @@ public sealed class MainWindow : Window
         sb.AppendLine($"ceCount={_controller.Engagements.Count}");
         foreach (var ce in _controller.Engagements)
             sb.AppendLine($"ce={ce.EventId},state={ce.State},left={ce.SecondsLeft},progress={ce.Progress}");
+
+        sb.AppendLine("stateTransitions:");
+        foreach (var entry in DiagnosticsRecorder.StateTransitions)
+            sb.AppendLine($"  {entry.Timestamp:O} state={entry.State} status={entry.Message}");
+
+        sb.AppendLine("warnings:");
+        foreach (var entry in DiagnosticsRecorder.WarningHistory)
+            sb.AppendLine($"  {entry.Timestamp:O} state={entry.State} warning={entry.Message}");
 
         // Intentionally excluded: character name, world, chat, party member names and any free-form user text.
         return sb.ToString();

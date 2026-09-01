@@ -257,11 +257,14 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             _controller.Tick();
+            DiagnosticsRecorder.Observe(_controller.State, _controller.Status);
         }
         catch (Exception ex)
         {
             Svc.Log.Error(ex, "[BozjaBuddyReborn] Controller tick failed; stopping for safety.");
-            _controller.Stop("Stopped after an internal error - see /xllog.");
+            _controller.Stop("内部エラーのため停止しました。/xllog を確認してください。");
+            DiagnosticsRecorder.Warning("内部エラーのためコントローラーを停止しました。");
+            DiagnosticsRecorder.Observe(_controller.State, _controller.Status);
         }
     }
 

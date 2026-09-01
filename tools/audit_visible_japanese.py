@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,9 +112,19 @@ def iter_calls(text: str):
 
 
 def literal_value(token: str) -> str:
+    # We only need the human-visible shape, not a complete C# escape decoder. In particular,
+    # running UTF-8 Japanese bytes through Python's unicode_escape corrupts them into C1 control
+    # characters and then the Windows runner cannot print the result. Preserve Unicode verbatim
+    # and normalize the few escapes relevant to UI text.
     first = token.find('"')
     body = token[first + 1 : -1]
-    return bytes(body, "utf-8").decode("unicode_escape", errors="ignore") if "\\" in body else body
+    return (
+        body.replace(r"\n", "\n")
+        .replace(r"\r", "\r")
+        .replace(r"\t", "\t")
+        .replace(r'\"', '"')
+        .replace(r"\\", "\\")
+    )
 
 
 def is_internal_or_format(value: str) -> bool:
@@ -130,6 +141,13 @@ def is_internal_or_format(value: str) -> bool:
 
 
 def main() -> int:
+    # GitHub's Windows runner may expose a cp1252 stdout even though every repository file is
+    # UTF-8. Force the diagnostic stream to match the source we are auditing.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+    except Exception:
+        pass
+
     findings: list[tuple[str, int, str, str]] = []
     for path in sorted(WINDOWS.glob("*.cs")):
         original = path.read_text(encoding="utf-8-sig")

@@ -6,6 +6,10 @@ on:
     branches:
       - feat/bocchi-navigation
 
+concurrency:
+  group: bbr-v110-test-build
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -134,6 +138,14 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          git fetch origin feat/bocchi-navigation
+          $remoteHead = (git rev-parse origin/feat/bocchi-navigation).Trim()
+          $builtHead = '${{ github.sha }}'
+          if ($remoteHead -ne $builtHead) {
+            Write-Host "Branch advanced from $builtHead to $remoteHead while this run was building; skipping stale publish."
+            exit 0
+          }
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add dist-test/BozjaBuddyReborn.zip pluginmaster-test.json

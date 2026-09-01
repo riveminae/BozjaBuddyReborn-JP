@@ -26,6 +26,7 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
     private readonly Configuration _config = config;
     private readonly AggroAvoidance _avoidance = avoidance;
     private readonly FieldTravelRouter _fieldRouter = new(new LifestreamIpc(pluginInterface), config);
+    private readonly ManualMovementYield _manualYield = new();
 
     private Vector3 _destination = Vector3.Zero;
     private Vector3 _snapped = Vector3.Zero;
@@ -212,6 +213,7 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
     public FieldTravelMode TravelMode => _fieldRouter.Mode;
     public string RouteDescription => _fieldRouter.RouteDescription;
     public bool LifestreamAvailable => _fieldRouter.LifestreamAvailable;
+    public bool YieldingToManualMovement => _manualYield.ShouldYield();
 
     /// <summary>Distance from the local player to a world position, ignoring height.</summary>
     public static float HorizontalDistance(Vector3 a, Vector3 b)
@@ -241,6 +243,16 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
     /// </returns>
     public bool TravelTo(Vector3 destination, float range)
     {
+        // Direct player movement wins over both legacy and BOCCHI routing. Suspend preserves the
+        // current route/stall history while repeatedly pumping vnavmesh's global stop until the
+        // player has been quiet for the guard's three-second window. Crucially this happens before
+        // Resolve(), so pressing movement during an eligible Return route cannot trigger Return.
+        if (_manualYield.ShouldYield())
+        {
+            Suspend();
+            return true;
+        }
+
         if (_config.LegacyMovement || !_config.UseBocchiNavigation)
             return TravelDirectTo(destination, range);
 
@@ -713,6 +725,7 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
         _bestRemaining = float.MaxValue;
         _suspended = false;
         _forceReissue = false;
+        _manualYield.Reset();
         ClearDetour();
 
         if (!hadPath)

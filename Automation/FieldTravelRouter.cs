@@ -53,6 +53,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
     private long _lastTeleportAttemptMs;
     private int _teleportAttempts;
     private long _returnStartedMs;
+    private bool _returnConfirmationSent;
     private bool _fallbackForGoal;
 
     private const float GoalIdentityRadius = 10f;
@@ -82,6 +83,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         _lastTeleportAttemptMs = 0;
         _teleportAttempts = 0;
         _returnStartedMs = 0;
+        _returnConfirmationSent = false;
         _fallbackForGoal = false;
         RouteDescription = "直接移動";
     }
@@ -144,6 +146,15 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                 var now = Environment.TickCount64;
                 if (_returnStartedMs != 0)
                 {
+                    // BOCCHI treats Return as cast + owned SelectYesno confirmation. Confirm only
+                    // while this router has a live Return pending flag; GeneralActions never clicks
+                    // a generic dialog on its own.
+                    if (!_returnConfirmationSent && GeneralActions.TryConfirmPendingReturn())
+                    {
+                        _returnConfirmationSent = true;
+                        Svc.Log.Information("[BozjaBuddyReborn] Confirmed pending Return traversal dialog.");
+                    }
+
                     if (now - _returnStartedMs > ReturnTimeoutMs)
                     {
                         FallBack("Return did not reach base camp before timeout");
@@ -171,6 +182,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                 }
 
                 _returnStartedMs = now;
+                _returnConfirmationSent = false;
                 Svc.Log.Information("[BozjaBuddyReborn] BOCCHI-style Return traversal started.");
                 return new FieldTravelDirective(Vector3.Zero, 0, true, _mode, RouteDescription);
             }

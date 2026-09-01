@@ -36,6 +36,9 @@ public sealed class Plugin : IDalamudPlugin
 
     private readonly NavmeshIpc _navmesh;
     private readonly CombatDirector _director;
+    private readonly DependencySupervisor _dependencies;
+    private readonly TextAdvanceIpc _textAdvance;
+    private readonly DeathRecoveryDriver _deathRecovery;
     private readonly MultiboxLink _link = new();
     private readonly AggroAvoidance _aggroAvoidance;
     private readonly Movement _movement;
@@ -48,6 +51,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly SignUpRunner _signUps;
     private readonly PartySupportDriver _partySupport;
     private readonly BozjaController _controller;
+    private readonly SocialRequestGuard _socialRequests;
 
     private readonly DutyActionSync _dutySync;
 
@@ -70,6 +74,9 @@ public sealed class Plugin : IDalamudPlugin
 
         _navmesh = new NavmeshIpc(pluginInterface);
         _director = new CombatDirector(pluginInterface, _config);
+        _dependencies = new DependencySupervisor(_navmesh, _director);
+        _textAdvance = new TextAdvanceIpc(pluginInterface);
+        _deathRecovery = new DeathRecoveryDriver(_textAdvance);
         _aggroAvoidance = new AggroAvoidance(_config);
         _movement = new Movement(_navmesh, _config, _aggroAvoidance, pluginInterface);
         _approach = new CombatApproach(_navmesh, _config);
@@ -83,7 +90,8 @@ public sealed class Plugin : IDalamudPlugin
 
         _controller = new BozjaController(
             _config, _catalog, _selector, _movement, _director, _approach, _holster, _link, _navmesh, _regions,
-            _errands, _loadoutDriver, _signUps, _partySupport);
+            _errands, _loadoutDriver, _signUps, _partySupport, _deathRecovery, _dependencies);
+        _socialRequests = new SocialRequestGuard(_config, () => _controller.Running);
 
         _mainWindow = new MainWindow(_config, _controller, _director, _navmesh, _link, _catalog) { IsOpen = false };
         _configWindow = new ConfigWindow(_config, _lostActions, _regions, _aggroAvoidance)
@@ -346,6 +354,9 @@ public sealed class Plugin : IDalamudPlugin
         catch { /* best effort during teardown */ }
 
         try { _director.ReleaseControl(); }
+        catch { /* best effort */ }
+
+        try { _socialRequests.Dispose(); }
         catch { /* best effort */ }
 
         _link.Dispose();

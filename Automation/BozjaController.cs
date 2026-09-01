@@ -53,6 +53,9 @@ public sealed class BozjaController
     private readonly LoadoutDriver _loadouts;
     private readonly SignUpRunner _signUps;
     private readonly PartySupportDriver _partySupport;
+    private readonly DeathRecoveryDriver _deathRecovery;
+    private readonly DependencySupervisor _dependencies;
+    private readonly SafeStopCoordinator _safeStop = new();
 
     private long _arrivedAtMs;
     private bool _reportedArrival;
@@ -91,7 +94,9 @@ public sealed class BozjaController
         ErrandRunner errands,
         LoadoutDriver loadouts,
         SignUpRunner signUps,
-        PartySupportDriver partySupport)
+        PartySupportDriver partySupport,
+        DeathRecoveryDriver deathRecovery,
+        DependencySupervisor dependencies)
     {
         _config = config;
         _catalog = catalog;
@@ -107,6 +112,8 @@ public sealed class BozjaController
         _loadouts = loadouts;
         _signUps = signUps;
         _partySupport = partySupport;
+        _deathRecovery = deathRecovery;
+        _dependencies = dependencies;
     }
 
     /// <summary>The zone third the character is standing in right now.</summary>
@@ -132,6 +139,9 @@ public sealed class BozjaController
         _arrivedAtMs = 0;
         _lastAttackerMs = 0;
         _director.Resync();
+        _dependencies.Reset();
+        _safeStop.Reset();
+        _deathRecovery.CancelAndRestore();
         _holster.Reset();
         ResetYieldState();
 
@@ -168,6 +178,7 @@ public sealed class BozjaController
         _approach.Release();
         _movement.Stop();
         _director.ReleaseControl();
+        _deathRecovery.CancelAndRestore();
 
         // A sign-up outlived Stop, so a stopped box carried on driving the recruitment window.
         _signUps.Cancel("Stopped.");
@@ -269,15 +280,20 @@ public sealed class BozjaController
             return;
         }
 
-        // DEAD. There was no death handling at all before this, and Bozja kills you regularly.
-        // Everything below assumes a living character that can move and fight, and the state
-        // carried across a corpse run is actively harmful: a stale _committed made the runner
-        // stop 30y+ short of the objective it was returning to (see the leash), and a stale
-        // _reportedArrival meant the multibox barrier was never told this box had left.
-        if (Svc.Condition[ConditionFlag.Unconscious] || Svc.Objects.LocalPlayer?.CurrentHp == 0)
+        // Timed unattended death recovery. TextAdvance is enabled only for the corpse window and
+        // restored after revival. CE deaths never cast Return while the CE remains live; a committed
+        // skirmish gets a 30s raise window and travel/idle gets 10s.
+        var dead = Svc.Condition[ConditionFlag.Unconscious] || Svc.Objects.LocalPlayer?.CurrentHp == 0;
+        if (dead)
         {
+            var currentWhileDead = CriticalEngagements.Current(_catalog);
+            var inLiveCe = currentWhileDead is { } deadCe && deadCe.IsLive;
+            var diedDuringSkirmish = _lastObjective.Kind == ObjectiveKind.Fate
+                                     && (_committed || State is ControllerState.Engaged or ControllerState.Holding);
+            var recovery = _deathRecovery.Tick(true, inLiveCe, diedDuringSkirmish);
+
             State = ControllerState.Blocked;
-            Status = "Dead - waiting for a raise or a return to the base camp.";
+            Status = recovery.JapaneseStatus;
             _committed = false;
             _returning = false;
             _reportedArrival = false;
@@ -285,8 +301,14 @@ public sealed class BozjaController
             _approach.Release();
             _movement.Stop();
             _director.Travel(_config.UseBossModAvoidance);
+
+            if (recovery.Fatal)
+                Stop(recovery.JapaneseStatus);
             return;
         }
+
+        // A live-again tick is what restores TextAdvance to the exact state it had before death.
+        _deathRecovery.Tick(false, false, false);
 
         if (!FieldState.InFieldZone)
         {
@@ -298,12 +320,33 @@ public sealed class BozjaController
             return;
         }
 
-        if (!_navmesh.Available)
+        var dependency = _dependencies.Snapshot();
+        if (!dependency.Ready)
         {
             State = ControllerState.Blocked;
-            Status = "vnavmesh is not installed - movement is unavailable.";
+            _movement.Stop();
+
+            // Waiting for a required plugin must not turn into a free death. The survivability
+            // driver remains allowed while unmounted; its own mounted invariant prevents a heal
+            // from dismounting the character during travel.
+            _holster.Tick(inCombat: Svc.Condition[ConditionFlag.InCombat]);
+
+            if (dependency.Health == DependencyHealth.WaitingRequired)
+            {
+                Status = $"必須プラグインとの接続が失われました: {dependency.MissingText}。" +
+                         $"復帰を待っています（残り{Math.Ceiling(dependency.Remaining.TotalSeconds):F0}秒）。";
+                return;
+            }
+
+            var safeStop = _safeStop.Tick(Svc.Condition[ConditionFlag.InCombat]);
+            Status = safeStop.JapaneseStatus + $" ({dependency.MissingText})";
+            if (safeStop.StopNow)
+                Stop(Status);
             return;
         }
+
+        // A recovered dependency cancels any pending pre-stop Return state.
+        _safeStop.Reset();
 
         if (!_navmesh.MeshReady)
         {

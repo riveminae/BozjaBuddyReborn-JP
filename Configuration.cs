@@ -120,6 +120,9 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Preferred order; engagements earlier in this list win ties.</summary>
     public List<uint> PriorityEngagements = [];
 
+    /// <summary>Reject strictly identified incoming social requests while the runner is active.</summary>
+    public bool RejectSocialRequestsWhileRunning = true;
+
     // --- zone-targeted farming ---------------------------------------------
     // Relic materials are region-specific, and in Zadnor skirmishes and Critical Engagements
     // within the same plateau drop different items. Setting a farm target restricts selection
@@ -277,6 +280,29 @@ public sealed class Configuration : IPluginConfiguration
 
     /// <summary>Fast guard between two automatic survival spends; the game remains the final cooldown authority.</summary>
     public int SurvivalUseGapMs = 750;
+
+    // --- survival supply watermarks -----------------------------------------
+
+    /// <summary>Routine refill threshold for Resistance Potion Kit reserves in the holster.</summary>
+    public int SupplyPotionKitLow = 2;
+
+    /// <summary>Routine refill threshold for Resistance Reraiser reserves in the holster.</summary>
+    public int SupplyReraiserLow = 1;
+
+    /// <summary>Conservative minimum immediately available/reserve units for the role's main Lost heal.</summary>
+    public int SupplyMainHealLow = 5;
+
+    /// <summary>Routine refill threshold for Lost Manawall reserve units.</summary>
+    public int SupplyEmergencyDefenseLow = 1;
+
+    /// <summary>Target Potion Kit reserve after a differential refill.</summary>
+    public int SupplyPotionKitTarget = 5;
+
+    /// <summary>Target Reraiser reserve after a differential refill.</summary>
+    public int SupplyReraiserTarget = 3;
+
+    /// <summary>Target Lost Manawall reserve after a differential refill.</summary>
+    public int SupplyEmergencyDefenseTarget = 2;
 
     /// <summary>Per-row bring/refill overrides. Missing = policy default; Deep Essences default false.</summary>
     public Dictionary<byte, bool> LostActionBringPermissions = [];

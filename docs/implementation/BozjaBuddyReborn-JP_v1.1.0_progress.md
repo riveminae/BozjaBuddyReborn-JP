@@ -3,7 +3,7 @@
 最終更新: 2026-09-01  
 branch: `feat/bocchi-navigation`  
 main baseline: `038faf8d70b2aea7189143f7fd46a8c135cb0484`  
-最新CI検証commit: `4432000190e110a9f921b7dd946ab9578fc7bce9`  
+最新CI検証commit: `21c55df003eb966044a17f57b62bc4bf3bdf015e`  
 Test version: `1.0.90.4`
 
 ## ステータス定義
@@ -25,12 +25,13 @@ Test version: `1.0.90.4`
 - Survival auto-use、Reraiser risk-window、role別閾値、mounted invariantは実装済み。
 - Lost Finds Cache/Holsterの読み取り・target planning・low-watermark評価は実装済み。
 - **最大の残blockerはCache↔Holsterの正規サーバー転送手段**。公開ClientStructs/公開Dalamud実装から確定できず、推測callbackや直接memory writeは行わない。
+- `DiagnosticsRecorder` を追加し、直近state transition 32件 / warning 16件をprivacy-safeに保持する実装を追加中。
 
 ## Task Packet一覧
 
 | Packet | Status | 内容 | 現状 |
 |---|---|---|---|
-| P0-01 | DONE | baseline audit + build確認 | CI `33507069575` Debug/Release/package成功 |
+| P0-01 | DONE | baseline audit + build確認 | CI `33517819295` Debug/Release/package成功 |
 | P1-01 | PARTIAL | AGPL/notice検証 | AGPL化・BBR/BOCCHI/Ocelot notice反映済み。最終license auditのみ残す |
 | P1-02 | DONE | Test version 1.0.90.x統一 | workflow/manifest/assembly/package version同期・publish成功 |
 | P2-01 | PARTIAL | Vendored BOCCHI traversal model | BOCCHI constants/Return semanticsをvendor化。full graph importは未完 |
@@ -66,7 +67,7 @@ Test version: `1.0.90.4`
 | P10-03 | WAITING_LIVE_TEST | false positive確認 | 最終ゲーム表示差分のみ未確認 |
 | P11-01 | PARTIAL | UI tab再編 | 日本語設定UI拡張済み。6カテゴリ最終整理残り |
 | P11-02 | PARTIAL | main status | route/CE/dependency/survival表示を拡張済み |
-| P11-03 | TODO | DiagnosticsRecorder | warning/state transition ring buffer未実装 |
+| P11-03 | PARTIAL | DiagnosticsRecorder | ring buffer実装commit作成済み。CI反映待ち |
 | P11-04 | DONE | clipboard diagnostics | 個人情報を除外した診断コピー実装・CI build済み |
 | P11-05 | TODO | debug world overlay | 未実装 |
 | P11-06 | PARTIAL | visible English全日本語化 | `Loc` は日本語固定。残存literal全走査が必要 |
@@ -86,7 +87,7 @@ Test version: `1.0.90.4`
 ### 2026-09-01 v1.0.90.4 validation
 
 - workflow: `Build v1.1 test repository`
-- run: `33507069575`
+- run: `33517819295`
 - packet application: pass
 - diff check: pass
 - restore: pass
@@ -96,7 +97,7 @@ Test version: `1.0.90.4`
 - assembly version verification: pass
 - artifact upload: pass
 - test repository publish: pass
-- validated bot commit: `4432000190e110a9f921b7dd946ab9578fc7bce9`
+- validated bot commit: `21c55df003eb966044a17f57b62bc4bf3bdf015e`
 
 ## 技術調査
 

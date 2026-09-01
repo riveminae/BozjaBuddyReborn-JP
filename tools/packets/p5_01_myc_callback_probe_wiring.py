@@ -34,6 +34,6 @@ patch(
 )
 patch(
     "Plugin.cs",
-    """        _link.Dispose();\n\n        ConfigSaver.Save(_config);\n""",
-    """        _link.Dispose();\n        try { _mycItemBoxProbe.Dispose(); }\n        catch { /* best effort */ }\n\n        ConfigSaver.Save(_config);\n""",
+    """        _link.Dispose();\n\n        Svc.Commands.RemoveHandler(CommandMain);\n""",
+    """        _link.Dispose();\n        try { _mycItemBoxProbe.Dispose(); }\n        catch { /* best effort */ }\n\n        Svc.Commands.RemoveHandler(CommandMain);\n""",
 )

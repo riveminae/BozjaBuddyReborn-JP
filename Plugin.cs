@@ -72,6 +72,8 @@ public sealed class Plugin : IDalamudPlugin
         ECommonsMain.Init(pluginInterface, this);
 
         _config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        if (ConfigMigration.Apply(_config))
+            ConfigSaver.Save(_config);
 
         _navmesh = new NavmeshIpc(pluginInterface);
         _director = new CombatDirector(pluginInterface, _config);

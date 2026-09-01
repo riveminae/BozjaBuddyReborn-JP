@@ -25,23 +25,26 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Apply v1.1 source patches
-        run: |
-          python tools/apply_v110_foundation.py
-          python tools/apply_v110_survival.py
-
-      - name: Apply AGPL-3.0 distribution license
+      - name: Read test version
+        id: version
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/OhKannaDuh/BOCCHI/7847b00c313d6a7ddfe9ee126e46e10f547db9da/LICENSE' -OutFile LICENSE
+          $version = (Get-Content version-test.txt -Raw).Trim()
+          if ($version -notmatch '^1\.0\.90\.\d+$') {
+            throw "Invalid test version '$version'. Expected 1.0.90.x."
+          }
+          "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Test version: $version"
 
-      - name: Validate patch
+      - name: Validate repository
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           git diff --check
-          git status --short
+          if (git status --porcelain) {
+            throw 'Checkout is dirty before build.'
+          }
 
       - name: Install Dalamud dev files
         shell: pwsh
@@ -57,69 +60,86 @@ jobs:
         run: dotnet restore BozjaBuddyReborn.csproj
 
       - name: Build Debug
-        run: dotnet build BozjaBuddyReborn.csproj -c Debug --no-restore --nologo
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.value }}'
+          dotnet build BozjaBuddyReborn.csproj -c Debug --no-restore --nologo `
+            /p:Version=$version /p:AssemblyVersion=$version /p:FileVersion=$version
 
       - name: Build Release
-        run: dotnet build BozjaBuddyReborn.csproj -c Release --no-restore --nologo
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.value }}'
+          dotnet build BozjaBuddyReborn.csproj -c Release --no-restore --nologo `
+            /p:Version=$version /p:AssemblyVersion=$version /p:FileVersion=$version
 
       - name: Prepare test custom repository
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $version = '${{ steps.version.outputs.value }}'
           New-Item -ItemType Directory -Force -Path dist-test | Out-Null
           Copy-Item 'bin/Release/BozjaBuddyReborn/latest.zip' 'dist-test/BozjaBuddyReborn.zip' -Force
 
-          $manifest = @'
-          [
-            {
-              "Author": "Bozja Buddy Reborn contributors / JP fork by riveminae",
-              "Name": "Bozja Buddy Reborn JP TEST",
-              "InternalName": "BozjaBuddyReborn",
-              "AssemblyVersion": "1.0.90.2",
-              "TestingAssemblyVersion": "1.0.90.2",
-              "Description": "v1.1 開発テスト版。BOCCHI方式のフィールド移動、Lifestream簡易テレポ、CE遠隔参加、IV/V/★敵回避、生存優先Lost Actionを検証します。Stable版repoと同時に有効化しないでください。",
-              "Punchline": "Bozja Buddy Reborn JP v1.1 実機テスト版",
-              "ApplicableVersion": "any",
-              "DalamudApiLevel": 15,
-              "Tags": ["bozja", "zadnor", "automation", "japanese", "testing"],
-              "CategoryTags": ["utility"],
-              "RepoUrl": "https://github.com/riveminae/BozjaBuddyReborn-JP",
-              "IconUrl": "",
-              "Changelog": "1.0.90.2 - survival/rank test: IV/V/★ avoidance, mounted-action guard, role HP thresholds, Potion Kit/Reraiser/heal/Manawall survival policy, Japanese UI foundation.",
-              "IsHide": false,
-              "IsTestingExclusive": false,
-              "AcceptsFeedback": true,
-              "DownloadLinkInstall": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip",
-              "DownloadLinkUpdate": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip",
-              "DownloadLinkTesting": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip"
-            }
-          ]
-          '@
-          Set-Content -Path pluginmaster-test.json -Value $manifest -Encoding utf8
+          $entry = [ordered]@{
+            Author = 'Bozja Buddy Reborn contributors / JP fork by riveminae'
+            Name = 'Bozja Buddy Reborn JP TEST'
+            InternalName = 'BozjaBuddyReborn'
+            AssemblyVersion = $version
+            TestingAssemblyVersion = $version
+            Description = 'v1.1 開発テスト版。BOCCHI方式ナビゲーション、生存制御、補給・復旧機能を段階的に検証します。Stable版repoと同時に有効化しないでください。'
+            Punchline = 'Bozja Buddy Reborn JP v1.1 実機テスト版'
+            ApplicableVersion = 'any'
+            DalamudApiLevel = 15
+            Tags = @('bozja', 'zadnor', 'automation', 'japanese', 'testing')
+            CategoryTags = @('utility')
+            RepoUrl = 'https://github.com/riveminae/BozjaBuddyReborn-JP'
+            IconUrl = ''
+            Changelog = "$version - feat/bocchi-navigation automated test build. See docs/implementation/BozjaBuddyReborn-JP_v1.1.0_progress.md."
+            IsHide = $false
+            IsTestingExclusive = $false
+            AcceptsFeedback = $true
+            DownloadLinkInstall = 'https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip'
+            DownloadLinkUpdate = 'https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip'
+            DownloadLinkTesting = 'https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip'
+          }
+          @($entry) | ConvertTo-Json -Depth 6 | Set-Content -Path pluginmaster-test.json -Encoding utf8
+
+      - name: Verify packaged assembly version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = '${{ steps.version.outputs.value }}'
+          $dll = Get-ChildItem -Path bin/Release -Recurse -Filter BozjaBuddyReborn.dll | Select-Object -First 1
+          if (-not $dll) { throw 'BozjaBuddyReborn.dll not found.' }
+          $actual = [System.Reflection.AssemblyName]::GetAssemblyName($dll.FullName).Version.ToString()
+          if ($actual -ne $expected) {
+            throw "Assembly version mismatch: expected $expected, got $actual"
+          }
+          $manifest = Get-Content pluginmaster-test.json -Raw | ConvertFrom-Json
+          if ($manifest[0].AssemblyVersion -ne $expected) {
+            throw 'Manifest version does not match source-of-truth version.'
+          }
 
       - name: Upload test artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BozjaBuddyReborn-JP-v1.1-test
+          name: BozjaBuddyReborn-JP-v1.1-test-${{ steps.version.outputs.value }}
           path: |
             bin/Release/**
             pluginmaster-test.json
           if-no-files-found: error
 
-      - name: Commit validated source and test repository
+      - name: Publish validated test repository
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not (git status --porcelain)) {
-            Write-Host 'No changes to commit.'
-            exit 0
-          }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Configuration.cs Localization.cs Plugin.cs LICENSE THIRD-PARTY-NOTICES.md BozjaBuddyReborn.csproj
-          git add Automation/Movement.cs Automation/TargetSelector.cs Automation/BozjaController.cs Automation/SignUpRunner.cs Automation/AggroAvoidance.cs Automation/HolsterDriver.cs
-          git add Game/SurvivalPolicy.cs Game/EnemyStrengthResolver.cs External/LifestreamIpc.cs Game/FieldAethernet.cs Vendor/BOCCHI/NavigationConstants.cs Automation/FieldTravelRouter.cs
-          git add Windows/MainWindow.cs Windows/ConfigWindow.cs
           git add dist-test/BozjaBuddyReborn.zip pluginmaster-test.json
-          git commit -m 'feat: apply validated v1.1 survival and rank automation'
-          git push origin HEAD:feat/bocchi-navigation
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "build: publish test repository ${{ steps.version.outputs.value }}"
+            git push origin HEAD:feat/bocchi-navigation
+          } else {
+            Write-Host 'Published files are unchanged.'
+          }

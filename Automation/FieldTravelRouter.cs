@@ -72,6 +72,14 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
     public bool OnFinalLeg => _mode is FieldTravelMode.Direct or FieldTravelMode.WalkFromAetheryte or FieldTravelMode.FallbackDirect;
     public string RouteDescription { get; private set; } = "直接移動";
 
+    // Read-only diagnostic snapshot. These are world coordinates only; exposing them cannot
+    // mutate route state, and keeps the overlay out of the planner's decision logic.
+    public Vector3 DebugGoal => _goal;
+    public Vector3? DebugDeparture => _departure?.Position;
+    public Vector3? DebugInbound => _inbound?.Position;
+    public uint DebugDeparturePlaceNameId => _departure?.PlaceNameId ?? 0;
+    public uint DebugInboundPlaceNameId => _inbound?.PlaceNameId ?? 0;
+
     public bool IsRoutingTo(Vector3 destination) =>
         _goal != Vector3.Zero && Movement.HorizontalDistance(_goal, destination) <= GoalIdentityRadius;
 

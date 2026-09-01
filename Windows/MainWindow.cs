@@ -115,7 +115,7 @@ public sealed class MainWindow : Window
         ImGui.SameLine();
         ImGui.TextUnformatted("-");
         ImGui.SameLine();
-        ImGui.TextWrapped(_controller.Status);
+        ImGui.TextWrapped(Loc.Runtime(_controller.Status));
 
         if (_controller.Running)
         {
@@ -130,7 +130,7 @@ public sealed class MainWindow : Window
         // else - and "the driver quietly did nothing" is precisely the failure this line exists
         // to make visible.
         if (_config.AutoUseLostActions && _controller.LastLostAction.Length > 0)
-            ImGui.TextColored(Grey, $"ロストアクション: {_controller.LastLostAction}");
+            ImGui.TextColored(Grey, $"ロストアクション: {Loc.Runtime(_controller.LastLostAction)}");
 
         var latestWarning = DiagnosticsRecorder.LatestWarning;
         if (!string.IsNullOrWhiteSpace(latestWarning))
@@ -167,7 +167,7 @@ public sealed class MainWindow : Window
 
         ImGui.SameLine();
         ImGui.TextColored(task.Active ? Green : Grey,
-            task.Status.Length > 0 ? task.Status : "パーティ支援は待機中です。");
+            task.Status.Length > 0 ? Loc.Runtime(task.Status) : "パーティ支援は待機中です。");
 
         if (task.Active && task.Applied > 0)
         {

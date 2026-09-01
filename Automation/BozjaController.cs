@@ -1391,7 +1391,7 @@ public sealed class BozjaController
                 if (Loadout.TryDecode(command.Arg, out var a0, out var a1, out var ess))
                 {
                     _loadouts.Apply(a0, a1, ess);
-                    LastCommandResult = $"ロストアクション構成: {_loadouts.LastResult}";
+                    LastCommandResult = $"ロストアクション構成: {Loc.Runtime(_loadouts.LastResult)}";
                 }
                 else
                 {

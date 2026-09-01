@@ -378,6 +378,16 @@ public sealed class ConfigWindow : Window
             "現在経路を破棄して目的地をnavmeshへ再スナップし、\n" +
             "新しい経路を作成します。");
 
+        ImGui.Spacing();
+        var debugOverlay = _config.DebugWorldOverlay;
+        if (ImGui.Checkbox("テスト用: 経路・危険敵をworld上に表示する", ref debugOverlay))
+        {
+            _config.DebugWorldOverlay = debugOverlay;
+            Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("目的地、選択Aethernet経路、IV/V/★/判定不能敵の感知範囲を描画します。通常はOFFにしてください。");
+
         ImGui.Separator();
         DrawAggroAvoidance();
 

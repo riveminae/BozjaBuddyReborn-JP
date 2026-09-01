@@ -52,6 +52,12 @@ public sealed class SafeStopCoordinator
             return new SafeStopStatus(false, "必須プラグインが復帰しません。拠点へデジョンしています。");
         }
 
+        // This is an intentional shutdown traversal, not combat/survival automation. Return
+        // cannot be relied on to start while mounted, so explicitly dismount before the safe-stop
+        // cast just like FieldTravelRouter does. No Lost Action or combat action is fired here.
+        if (Mount.IsMounted && !Mount.EnsureDismounted())
+            return new SafeStopStatus(false, "安全停止のためマウントから降りています。");
+
         if (!GeneralActions.ReturnReady())
             return new SafeStopStatus(true, "必須プラグインが復帰せず、デジョンも使用できないため停止します。");
 

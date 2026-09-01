@@ -274,6 +274,9 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Log each previously unseen field-rank raw icon pair once in test diagnostics.</summary>
     public bool EnemyRankDiagnostics = true;
 
+    /// <summary>TEST/diagnostics only: draw route and dangerous-enemy geometry in the world.</summary>
+    public bool DebugWorldOverlay;
+
     /// <summary>
     /// Enemies within this distance of the destination are ignored - they are almost certainly
     /// the objective's own mobs, and routing around those would mean never arriving.

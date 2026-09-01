@@ -214,6 +214,11 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
     public string RouteDescription => _fieldRouter.RouteDescription;
     public bool LifestreamAvailable => _fieldRouter.LifestreamAvailable;
     public bool YieldingToManualMovement => _manualYield.ShouldYield();
+    public Vector3 DebugRouteGoal => _fieldRouter.DebugGoal;
+    public Vector3? DebugRouteDeparture => _fieldRouter.DebugDeparture;
+    public Vector3? DebugRouteInbound => _fieldRouter.DebugInbound;
+    public uint DebugRouteDeparturePlaceNameId => _fieldRouter.DebugDeparturePlaceNameId;
+    public uint DebugRouteInboundPlaceNameId => _fieldRouter.DebugInboundPlaceNameId;
 
     /// <summary>Distance from the local player to a world position, ignoring height.</summary>
     public static float HorizontalDistance(Vector3 a, Vector3 b)

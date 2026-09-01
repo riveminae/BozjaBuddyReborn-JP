@@ -178,7 +178,7 @@ public sealed class DutyActionWindow : Window
             : _sentMs > DutyActions.LastPressMs ? _sent : DutyActions.LastPress;
 
         ImGui.Separator();
-        ImGui.TextColored(Grey, message);
+        ImGui.TextColored(Grey, Loc.Runtime(message));
     }
 
     private void DrawRow(PeerDuty peer)

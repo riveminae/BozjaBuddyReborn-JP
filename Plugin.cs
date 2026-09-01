@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Numerics;
 using BozjaBuddyReborn.Automation;
 using BozjaBuddyReborn.External;
 using BozjaBuddyReborn.Game;
@@ -6,6 +8,7 @@ using BozjaBuddyReborn.Multibox;
 using BozjaBuddyReborn.Relic;
 using BozjaBuddyReborn.Windows;
 using Dalamud.Game.Command;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using ECommons;
@@ -64,6 +67,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MultiboxerWindow _multiboxerWindow;
 
     private bool _multiboxStarted;
+    private long _debugOverlayScanMs;
+    private List<DangerZone> _debugOverlayDangerZones = [];
 
     /// <summary>Last known character name, announced over the multibox pipe. See SyncMultiboxLink.</summary>
     private string _selfName = "unknown";
@@ -120,6 +125,7 @@ public sealed class Plugin : IDalamudPlugin
         _windows.AddWindow(_multiboxerWindow);
 
         pluginInterface.UiBuilder.Draw += _windows.Draw;
+        pluginInterface.UiBuilder.Draw += DrawDebugWorldOverlay;
         pluginInterface.UiBuilder.OpenMainUi += OpenMain;
         pluginInterface.UiBuilder.OpenConfigUi += OpenConfig;
 
@@ -145,6 +151,125 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OpenMain() => _mainWindow.IsOpen = true;
     private void OpenConfig() => _configWindow.IsOpen = true;
+
+    /// <summary>TEST-only world-space diagnostics; never affects movement or selection.</summary>
+    private void DrawDebugWorldOverlay()
+    {
+        if (!_config.DebugWorldOverlay || !FieldState.InFieldZone)
+            return;
+
+        var me = Svc.Objects.LocalPlayer;
+        if (me == null)
+            return;
+
+        var now = Environment.TickCount64;
+        if (now - _debugOverlayScanMs >= 500)
+        {
+            _debugOverlayScanMs = now;
+            _debugOverlayDangerZones = _aggroAvoidance.Scan(140f);
+        }
+
+        var draw = ImGui.GetForegroundDrawList();
+        var routeColour = ImGui.GetColorU32(new Vector4(0.25f, 0.80f, 1.00f, 0.90f));
+        var teleportColour = ImGui.GetColorU32(new Vector4(0.75f, 0.45f, 1.00f, 0.90f));
+        var goalColour = ImGui.GetColorU32(new Vector4(0.30f, 1.00f, 0.45f, 0.95f));
+        var dangerColour = ImGui.GetColorU32(new Vector4(1.00f, 0.25f, 0.20f, 0.80f));
+        var marginColour = ImGui.GetColorU32(new Vector4(1.00f, 0.75f, 0.20f, 0.55f));
+
+        var goal = _movement.DebugRouteGoal;
+        if (goal == Vector3.Zero && _controller.CurrentObjective.IsSet)
+            goal = _controller.CurrentObjective.Position;
+
+        if (_movement.DebugRouteDeparture is { } departure)
+        {
+            DrawWorldLine(me.Position, departure, routeColour, 2.5f);
+            DrawWorldLabel(departure, $"出発Aethernet #{_movement.DebugRouteDeparturePlaceNameId}", routeColour);
+
+            if (_movement.DebugRouteInbound is { } inbound)
+            {
+                DrawWorldLine(departure, inbound, teleportColour, 2.0f);
+                DrawWorldLabel(inbound, $"到着Aethernet #{_movement.DebugRouteInboundPlaceNameId}", teleportColour);
+                if (goal != Vector3.Zero)
+                    DrawWorldLine(inbound, goal, routeColour, 2.5f);
+            }
+        }
+        else if (goal != Vector3.Zero)
+        {
+            DrawWorldLine(me.Position, goal, routeColour, 2.5f);
+        }
+
+        if (goal != Vector3.Zero)
+            DrawWorldLabel(goal, $"目的地 / {_movement.TravelMode}", goalColour);
+
+        foreach (var zone in _debugOverlayDangerZones)
+            DrawDangerZone(zone, dangerColour, marginColour);
+
+        return;
+
+        void DrawDangerZone(DangerZone zone, uint danger, uint margin)
+        {
+            DrawWorldCircle(zone.Position, zone.ProximityRadius, danger, 2.0f);
+
+            // Sight cone: radius arc plus the two radial edges.
+            const int ArcSegments = 20;
+            var previous = Vector3.Zero;
+            for (var i = 0; i <= ArcSegments; i++)
+            {
+                var t = i / (float)ArcSegments;
+                var angle = zone.Rotation - zone.ConeHalfAngleRad + t * zone.ConeHalfAngleRad * 2f;
+                var point = zone.Position + new Vector3(MathF.Sin(angle), 0f, MathF.Cos(angle)) * zone.SightRadius;
+                if (i > 0)
+                    DrawWorldLine(previous, point, danger, 1.8f);
+                previous = point;
+            }
+            var left = zone.Position + new Vector3(
+                MathF.Sin(zone.Rotation - zone.ConeHalfAngleRad), 0f,
+                MathF.Cos(zone.Rotation - zone.ConeHalfAngleRad)) * zone.SightRadius;
+            var right = zone.Position + new Vector3(
+                MathF.Sin(zone.Rotation + zone.ConeHalfAngleRad), 0f,
+                MathF.Cos(zone.Rotation + zone.ConeHalfAngleRad)) * zone.SightRadius;
+            DrawWorldLine(zone.Position, left, danger, 1.8f);
+            DrawWorldLine(zone.Position, right, danger, 1.8f);
+
+            var extra = _config.DangerClearance
+                        + (zone.Strength == FieldEnemyStrength.Star ? _config.DangerStarExtraClearance : 0f);
+            DrawWorldCircle(zone.Position, zone.OuterRadius + extra, margin, 1.2f);
+
+            var rank = zone.Strength switch
+            {
+                FieldEnemyStrength.Star => "★",
+                FieldEnemyStrength.Unknown => "?",
+                _ => ((byte)zone.Strength).ToString(),
+            };
+            DrawWorldLabel(zone.Position, $"[{rank}] {zone.Name}", danger);
+        }
+
+        void DrawWorldCircle(Vector3 center, float radius, uint colour, float thickness)
+        {
+            const int Segments = 32;
+            var previous = center + new Vector3(radius, 0f, 0f);
+            for (var i = 1; i <= Segments; i++)
+            {
+                var angle = MathF.Tau * i / Segments;
+                var current = center + new Vector3(MathF.Cos(angle) * radius, 0f, MathF.Sin(angle) * radius);
+                DrawWorldLine(previous, current, colour, thickness);
+                previous = current;
+            }
+        }
+
+        void DrawWorldLine(Vector3 a, Vector3 b, uint colour, float thickness)
+        {
+            if (Svc.GameGui.WorldToScreen(a, out var sa) && Svc.GameGui.WorldToScreen(b, out var sb))
+                draw.AddLine(sa, sb, colour, thickness);
+        }
+
+        void DrawWorldLabel(Vector3 world, string text, uint colour)
+        {
+            var raised = world + new Vector3(0f, 2.5f, 0f);
+            if (Svc.GameGui.WorldToScreen(raised, out var screen))
+                draw.AddText(screen, colour, text);
+        }
+    }
 
     private void OnCommand(string command, string args)
     {
@@ -375,6 +500,7 @@ public sealed class Plugin : IDalamudPlugin
         Svc.Commands.RemoveHandler(CommandRelic);
 
         Svc.PluginInterface.UiBuilder.Draw -= _windows.Draw;
+        Svc.PluginInterface.UiBuilder.Draw -= DrawDebugWorldOverlay;
         Svc.PluginInterface.UiBuilder.OpenMainUi -= OpenMain;
         Svc.PluginInterface.UiBuilder.OpenConfigUi -= OpenConfig;
         _windows.RemoveAllWindows();

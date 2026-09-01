@@ -152,7 +152,7 @@ public sealed class MultiboxerWindow : Window
                 _link.SendCommandLocal(new BoxCommand(_sync.SelfName, BoxVerb.SignUp, ""));
 
             if (_signUps.Status.Length > 0)
-                ImGui.TextColored(_signUps.Active ? Yellow : Grey, $"   {_signUps.Status}");
+                ImGui.TextColored(_signUps.Active ? Yellow : Grey, $"   {Loc.Runtime(_signUps.Status)}");
 
             // The phase and the window's real button labels, because "it did nothing" needs to be
             // separable into "no button" / "wrong label" / "clicked and ignored". Joining is a
@@ -206,11 +206,11 @@ public sealed class MultiboxerWindow : Window
             {
                 ImGui.TextColored(Grey, $"   {_controller.Status}");
                 if (_errands.Active)
-                    ImGui.TextColored(Yellow, $"   Errand: {_errands.Status}");
+                    ImGui.TextColored(Yellow, $"   移動指示: {Loc.Runtime(_errands.Status)}");
 
                 var support = _controller.PartySupport;
                 if (support.Active || support.Status.Length > 0)
-                    ImGui.TextColored(support.Active ? Green : Grey, $"   Party support: {support.Status}");
+                    ImGui.TextColored(support.Active ? Green : Grey, $"   パーティ支援: {Loc.Runtime(support.Status)}");
 
                 if (ImGui.SmallButton(support.Active ? "Stop party support" : "Start party support"))
                     support.Toggle();
@@ -246,7 +246,7 @@ public sealed class MultiboxerWindow : Window
         if (_controller.LastCommandResult.Length > 0)
         {
             ImGui.Separator();
-            ImGui.TextColored(Grey, $"Last instruction here: {_controller.LastCommandResult}");
+            ImGui.TextColored(Grey, $"直近の操作結果: {Loc.Runtime(_controller.LastCommandResult)}");
         }
     }
 

@@ -582,7 +582,13 @@ public sealed class BozjaController
             return;
         }
 
-        _movement.TravelTo(spot, _config.IdleArriveRange);
+        _movement.TravelTo(spot, _config.IdleArriveRange, waitForOptionalDependencies: true);
+        if (_movement.TravelMode == FieldTravelMode.WaitingForLifestream)
+        {
+            Status = $"{reason} Lifestreamの復帰を最大30秒待っています。";
+            return;
+        }
+
         Status = $"{reason} 待機地点 {label} へ移動中 " +
                  $"（残り {Movement.DistanceToPlayer(spot):F0}y）。";
     }

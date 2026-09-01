@@ -17,6 +17,7 @@ public enum FieldTravelMode : byte
     WalkFromAetheryte = 3,
     FallbackDirect = 4,
     Returning = 5,
+    WaitingForLifestream = 6,
 }
 
 /// <summary>
@@ -54,6 +55,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
     private int _teleportAttempts;
     private long _returnStartedMs;
     private bool _returnConfirmationSent;
+    private long _optionalLifestreamWaitStartedMs;
     private bool _fallbackForGoal;
 
     private const float GoalIdentityRadius = 10f;
@@ -63,6 +65,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
     private const long TeleportRetryDelayMs = 1_200;
     private const long TeleportTimeoutMs = 20_000;
     private const long ReturnTimeoutMs = 25_000;
+    private const long OptionalLifestreamWaitMs = 30_000;
 
     public FieldTravelMode Mode => _mode;
     public bool LifestreamAvailable => _lifestream.Available;
@@ -146,21 +149,50 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         _teleportAttempts = 0;
         _returnStartedMs = 0;
         _returnConfirmationSent = false;
+        _optionalLifestreamWaitStartedMs = 0;
         _fallbackForGoal = false;
         RouteDescription = "直接移動";
     }
 
-    public FieldTravelDirective Resolve(Vector3 finalDestination, float finalRange)
+    public FieldTravelDirective Resolve(
+        Vector3 finalDestination,
+        float finalRange,
+        bool waitForOptionalLifestream = false)
     {
         var me = Svc.Objects.LocalPlayer;
         if (me == null)
             return Direct(finalDestination, finalRange, FieldTravelMode.FallbackDirect, "プレイヤー情報待ち");
 
         if (!IsRoutingTo(finalDestination))
-            Plan(me.Position, finalDestination, finalRange);
+            Plan(me.Position, finalDestination, finalRange, waitForOptionalLifestream);
 
         if (!_config.UseBocchiNavigation || !FieldState.InFieldZone)
             return Direct(finalDestination, finalRange, FieldTravelMode.Direct, "直接移動");
+
+        if (_mode == FieldTravelMode.WaitingForLifestream)
+        {
+            var now = Environment.TickCount64;
+            RouteDescription = "Lifestream復帰待ち（最大30秒）";
+
+            if (_lifestream.Available)
+            {
+                Svc.Log.Information("[BozjaBuddyReborn] Optional Lifestream recovered during nonurgent wait; replanning route.");
+                Plan(me.Position, finalDestination, finalRange, waitForOptionalLifestream: false);
+                return Resolve(finalDestination, finalRange, waitForOptionalLifestream: false);
+            }
+
+            if (_optionalLifestreamWaitStartedMs == 0)
+                _optionalLifestreamWaitStartedMs = now;
+
+            if (now - _optionalLifestreamWaitStartedMs >= OptionalLifestreamWaitMs)
+            {
+                FallBack("optional Lifestream did not recover within the 30-second nonurgent window");
+                return Direct(finalDestination, finalRange, FieldTravelMode.FallbackDirect,
+                    "Lifestreamが30秒以内に復帰しないため直接移動");
+            }
+
+            return new FieldTravelDirective(Vector3.Zero, 0, true, _mode, RouteDescription);
+        }
 
         if (_fallbackForGoal || _departure is null || _inbound is null)
             return Direct(finalDestination, finalRange,
@@ -339,7 +371,11 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         }
     }
 
-    private void Plan(Vector3 start, Vector3 finalDestination, float finalRange)
+    private void Plan(
+        Vector3 start,
+        Vector3 finalDestination,
+        float finalRange,
+        bool waitForOptionalLifestream = false)
     {
         _goal = finalDestination;
         _goalRange = finalRange;
@@ -351,6 +387,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         _teleportAttempts = 0;
         _returnStartedMs = 0;
         _returnConfirmationSent = false;
+        _optionalLifestreamWaitStartedMs = 0;
 
         var territory = Svc.ClientState.TerritoryType;
         var nodes = FieldAethernet.ForTerritory(territory);
@@ -437,6 +474,55 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                     bestDeparture = camp;
                     bestInbound = inbound;
                 }
+            }
+        }
+
+        // In a nonurgent context (idle staging, cache errands and future supply runs), wait
+        // briefly for optional Lifestream only when an aethernet route WOULD actually beat the
+        // best route that is usable right now. Activity travel never passes this flag, so a CE or
+        // skirmish cannot lose 30 seconds to an optional plugin outage.
+        if (waitForOptionalLifestream
+            && _config.UseAethernetTravel
+            && !_lifestream.Available
+            && nodes.Count >= 2)
+        {
+            var hypothetical = best;
+            foreach (var departure in nodes)
+            foreach (var inbound in nodes)
+            {
+                if (departure.CustomAetheryteId == inbound.CustomAetheryteId)
+                    continue;
+                var candidate = Movement.HorizontalDistance(start, departure.Position)
+                                + hopCost
+                                + Movement.HorizontalDistance(inbound.Position, finalDestination);
+                hypothetical = MathF.Min(hypothetical, candidate);
+            }
+
+            if (_config.UseReturnRouting
+                && baseCamp is { } waitCamp
+                && Movement.HorizontalDistance(start, waitCamp.Position) > NavigationConstants.CampRadius
+                && !Svc.Condition[ConditionFlag.InCombat]
+                && GeneralActions.ReturnReady())
+            {
+                foreach (var inbound in nodes)
+                {
+                    if (inbound.IsBaseCamp)
+                        continue;
+                    var candidate = returnCost + hopCost
+                                    + Movement.HorizontalDistance(inbound.Position, finalDestination);
+                    hypothetical = MathF.Min(hypothetical, candidate);
+                }
+            }
+
+            if (hypothetical < best)
+            {
+                _mode = FieldTravelMode.WaitingForLifestream;
+                _optionalLifestreamWaitStartedMs = Environment.TickCount64;
+                RouteDescription = "Lifestream復帰待ち（最大30秒）";
+                Svc.Log.Information(
+                    $"[BozjaBuddyReborn] Nonurgent route can benefit from Lifestream; waiting up to 30 seconds " +
+                    $"before direct fallback (current={best:F0}y, hypothetical={hypothetical:F0}y).");
+                return;
             }
         }
 

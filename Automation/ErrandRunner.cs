@@ -119,7 +119,10 @@ public sealed class ErrandRunner(Movement movement, NavmeshIpc navmesh)
             return;
         }
 
-        _movement.TravelTo(obj.Position, InteractRange - 0.5f);
+        _movement.TravelTo(
+            obj.Position,
+            InteractRange - 0.5f,
+            waitForOptionalDependencies: true);
         Status = $"{Interactables.Label(_dataId)} へ移動中（残り{distance:F0}y）。";
     }
 }

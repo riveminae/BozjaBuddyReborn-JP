@@ -248,7 +248,10 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
     /// "could not start a path" diagnostic unreachable and a plugin that could not path
     /// indistinguishable from one travelling normally.
     /// </returns>
-    public bool TravelTo(Vector3 destination, float range)
+    public bool TravelTo(
+        Vector3 destination,
+        float range,
+        bool waitForOptionalDependencies = false)
     {
         // Direct player movement wins over both legacy and BOCCHI routing. Suspend preserves the
         // current route/stall history while repeatedly pumping vnavmesh's global stop until the
@@ -263,7 +266,7 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
         if (_config.LegacyMovement || !_config.UseBocchiNavigation)
             return TravelDirectTo(destination, range);
 
-        var directive = _fieldRouter.Resolve(destination, range);
+        var directive = _fieldRouter.Resolve(destination, range, waitForOptionalDependencies);
         if (directive.HoldMovement)
         {
             // A teleport is process-global movement just like vnavmesh.  Never leave our old

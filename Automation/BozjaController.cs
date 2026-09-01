@@ -171,7 +171,7 @@ public sealed class BozjaController
         // before - and with the GO still latched, straight past the arrival barrier.
         _link.ResetObjective();
 
-        Status = "Starting.";
+        Status = "開始処理中です。";
 
         if (_config.MultiboxEnabled && _config.MultiboxIsHost)
             _link.BroadcastRunState(true);
@@ -190,7 +190,7 @@ public sealed class BozjaController
         _dodgeAnswer = false;
     }
 
-    public void Stop(string reason = "Stopped.")
+    public void Stop(string reason = "停止しました。")
     {
         Running = false;
         State = ControllerState.Idle;
@@ -202,7 +202,7 @@ public sealed class BozjaController
         _deathRecovery.CancelAndRestore();
 
         // A sign-up outlived Stop, so a stopped box carried on driving the recruitment window.
-        _signUps.Cancel("Stopped.");
+        _signUps.Cancel("停止しました。");
 
         _lastObjective = SharedObjective.None;
         _reportedArrival = false;
@@ -245,7 +245,7 @@ public sealed class BozjaController
         if (_signUps.Active)
         {
             _signUps.Tick();
-            LastCommandResult = $"Sign-up: {_signUps.Status}";
+            LastCommandResult = $"参加申請: {_signUps.Status}";
         }
 
         // OPERATOR ERRANDS RUN WHETHER OR NOT THE ORCHESTRATOR IS. That is the entire point of
@@ -265,7 +265,7 @@ public sealed class BozjaController
 
             if (Svc.Condition[ConditionFlag.Unconscious] || Svc.Objects.LocalPlayer?.CurrentHp == 0)
             {
-                _errands.Cancel("Errand abandoned - the character died.");
+                _errands.Cancel("キャラクターが戦闘不能になったため移動指示を中止しました。");
                 return;
             }
 
@@ -285,7 +285,7 @@ public sealed class BozjaController
 
         if (Svc.Objects.LocalPlayer == null)
         {
-            Status = "Not logged in.";
+            Status = "ログイン状態を確認できません。";
             State = ControllerState.Blocked;
             return;
         }
@@ -297,7 +297,7 @@ public sealed class BozjaController
             Svc.Condition[ConditionFlag.WatchingCutscene78])
         {
             State = ControllerState.Blocked;
-            Status = "Zoning / cutscene.";
+            Status = "エリア移動またはカットシーン終了を待っています。";
             return;
         }
 
@@ -370,8 +370,8 @@ public sealed class BozjaController
             State = ControllerState.Blocked;
             var progress = _navmesh.BuildProgress;
             Status = progress >= 0
-                ? $"Building navmesh for this zone ({progress * 100f:F0}%)."
-                : "Waiting for the zone navmesh.";
+                ? $"このエリアのnavmeshを構築中です（{progress * 100f:F0}%）。"
+                : "このエリアのnavmeshを待っています。";
             return;
         }
 
@@ -415,9 +415,9 @@ public sealed class BozjaController
             // The farm filter's own explanation beats a generic "nothing available" - being in
             // the wrong zone for the material you are chasing is the failure worth naming.
             var reason = _config.MultiboxEnabled && !_config.MultiboxIsHost
-                ? "Waiting for the host to pick an objective."
+                ? "ホストが次の目的地を選択するのを待っています。"
                 : _selector.FarmFilterNote
-                  ?? "No engagement or skirmish available.";
+                  ?? "現在参加可能なCEまたはスカーミッシュがありません。";
 
             _director.Travel(_config.UseBossModAvoidance);
             RunIdle(reason);
@@ -474,14 +474,14 @@ public sealed class BozjaController
             ObjectiveKind.CriticalEngagement, ce.EventId, ce.Position, Svc.ClientState.TerritoryType));
 
         var region = FieldRegions.Label(Svc.ClientState.TerritoryType, CurrentRegion);
-        Status = $"In \"{ce.Name}\" ({region}) - {ce.StateText}, {ce.Progress}% " +
-                 $"({ce.Participants}/{ce.MaxParticipants}).";
+        Status = $"「{ce.Name}」で戦闘中（{region}）- {Loc.CeState(ce.State)} / 進行度 {ce.Progress}% " +
+                 $"（{ce.Participants}/{ce.MaxParticipants}人）。";
 
         // You cannot attack from a mount, so the rotation must not be armed until we are
         // grounded - otherwise RSR has nothing it can press and looks like it is doing nothing.
         if (!Mount.EnsureDismounted())
         {
-            Status = $"In \"{ce.Name}\" - dismounting.";
+            Status = $"「{ce.Name}」で戦闘するためマウントから降りています。";
             _approach.Release();
             _director.Travel(_config.UseBossModAvoidance);
             return;
@@ -521,7 +521,7 @@ public sealed class BozjaController
 
         if (!_config.UseIdleSpot)
         {
-            Status = $"{reason} Holding position.";
+            Status = $"{reason} その場で待機します。";
             _movement.Stop();
             return;
         }
@@ -559,14 +559,14 @@ public sealed class BozjaController
         }
         else
         {
-            Status = $"{reason} Holding position.";
+            Status = $"{reason} その場で待機します。";
             _movement.Stop();
             return;
         }
 
         if (_movement.HasArrived(spot, _config.IdleArriveRange))
         {
-            Status = $"{reason} Waiting in {label}.";
+            Status = $"{reason} {label}で待機しています。";
             _movement.Stop();
             return;
         }
@@ -577,14 +577,14 @@ public sealed class BozjaController
         // keeps the character walking through the mechanic.
         if (IsDodging())
         {
-            Status = $"{reason} Yielding to BossMod - dodging a mechanic.";
+            Status = $"{reason} BossModへ移動制御を渡してギミックを回避しています。";
             _movement.Suspend();
             return;
         }
 
         _movement.TravelTo(spot, _config.IdleArriveRange);
-        Status = $"{reason} Moving to the {label} staging point " +
-                 $"({Movement.DistanceToPlayer(spot):F0}y).";
+        Status = $"{reason} 待機地点 {label} へ移動中 " +
+                 $"（残り {Movement.DistanceToPlayer(spot):F0}y）。";
     }
 
     /// <summary>Choose an aethernet node for idle staging, resolving its actual navmesh floor.</summary>
@@ -1028,8 +1028,8 @@ public sealed class BozjaController
             // deliberately not fighting back - that reads as a broken rotation otherwise.
             if (attackers > 0)
             {
-                Status = $"Travelling to {Describe(objective)} ({distance:F0}y) - outrunning " +
-                         $"{attackers} attacker{(attackers == 1 ? "" : "s")}, not stopping to fight.";
+                Status = $"{Describe(objective)}へ移動中（残り{distance:F0}y）- " +
+                         $"{attackers}体に追跡されていますが、停止せず逃走を継続します。";
                 return;
             }
 
@@ -1042,11 +1042,11 @@ public sealed class BozjaController
 
             Status = $"{Describe(objective)}へ移動中 ({distance:F0}y / {_movement.RouteDescription}" +
                      (_movement.RepathCount > 0 ? $", 再経路 {_movement.RepathCount}" : "") +
-                     (_movement.RejectedIssues > 0 ? $", {_movement.RejectedIssues} refused" : "") +
+                     (_movement.RejectedIssues > 0 ? $", 経路要求拒否 {_movement.RejectedIssues}回" : "") +
                      // Detours that were needed and could not be used. Worth naming: this is the
                      // difference between "the route was clear" and "the route was not clear and
                      // we walked it anyway", which used to read identically.
-                     (_movement.RefusedDetours > 0 ? $", {_movement.RefusedDetours} detours refused" : "") +
+                     (_movement.RefusedDetours > 0 ? $", 迂回失敗 {_movement.RefusedDetours}回" : "") +
                      ").";
             return;
         }
@@ -1067,7 +1067,7 @@ public sealed class BozjaController
         // long way, that distinction matters - the character may be standing outside the arena
         // it was aiming for - so say so rather than reporting a clean arrival.
         _arrivalNote = _movement.SnapDrift > range
-            ? $" Arrived as close as the navmesh allows - {_movement.SnapDrift:F0}y from the marker centre."
+            ? $" navmeshで到達可能な最寄り地点に到着しました（マーカー中心から{_movement.SnapDrift:F0}y）。"
             : null;
 
         if (!IsReleasedToCommit())
@@ -1108,14 +1108,14 @@ public sealed class BozjaController
             return;
         }
 
-        Status = $"Under attack ({attackers}) - clearing before continuing to {Describe(objective)}.";
+        Status = $"{attackers}体から攻撃されています。{Describe(objective)}への移動再開前に排除します。";
 
         _director.Engage(_config.UseBossModAvoidance);
 
         // Most things that aggro are already on top of us, but a ranged puller is not, and
         // standing still swinging at nothing is the same failure as everywhere else.
         if (_approach.Tick(IsDodging(), _director.AvoidanceOwnsApproach) && _approach.ClosingOn is { } closing)
-            Status = $"Under attack ({attackers}) - closing on {closing}.";
+            Status = $"{attackers}体から攻撃されています。{closing}へ接近中です。";
 
         _holster.Tick(inCombat: true);
     }
@@ -1140,7 +1140,7 @@ public sealed class BozjaController
                 // Not changed yet: it needs one live check (see CeSnapshot.IsJoinable), and
                 // guessing wrong in this direction would break the one CE path that people may
                 // currently be relying on.
-                Status = $"At {Describe(objective)} - waiting to be registered.{_arrivalNote}";
+                Status = $"{Describe(objective)}付近で参加処理を待っています。{_arrivalNote}";
                 _approach.Release();
                 _director.Travel(_config.UseBossModAvoidance);
                 break;
@@ -1148,7 +1148,7 @@ public sealed class BozjaController
             case ObjectiveKind.Fate:
                 if (!TargetSelector.FateIsActive(objective.Id))
                 {
-                    Status = "Skirmish finished - picking the next objective.";
+                    Status = "スカーミッシュが終了しました。次の対象を選択します。";
                     _lastObjective = SharedObjective.None;
                     _approach.Release();
                     _director.Travel(_config.UseBossModAvoidance);
@@ -1158,21 +1158,21 @@ public sealed class BozjaController
                 // Grounded first - a mounted character cannot fight.
                 if (!Mount.EnsureDismounted())
                 {
-                    Status = $"At {Describe(objective)} - dismounting.";
+                    Status = $"{Describe(objective)}で戦闘するためマウントから降りています。";
                     _approach.Release();
                     _director.Travel(_config.UseBossModAvoidance);
                     return;
                 }
 
-                Status = $"Fighting {Describe(objective)}.";
+                Status = $"{Describe(objective)}で戦闘中です。";
                 _director.Engage(_config.UseBossModAvoidance);
 
                 // Arriving inside a skirmish ring is not the same as being on top of its mobs -
                 // the ring is tens of yalms across - so the approach matters most here.
                 if (_approach.Tick(IsDodging(), _director.AvoidanceOwnsApproach) && _approach.ClosingOn is { } closing)
                 {
-                    Status = $"Fighting {Describe(objective)} - closing on {closing} " +
-                             $"({_approach.ShortfallYalms:F0}y out of range).";
+                    Status = $"{Describe(objective)}で戦闘中 - {closing}へ接近しています " +
+                             $"（射程まであと{_approach.ShortfallYalms:F0}y）。";
                 }
 
                 _holster.Tick(Svc.Condition[ConditionFlag.InCombat]);
@@ -1313,7 +1313,7 @@ public sealed class BozjaController
                 _link.ReportArrived();
             }
 
-            Status = $"At {Describe(_lastObjective)} - waiting for the group.";
+            Status = $"{Describe(_lastObjective)}に到着済み - グループを待っています。";
             return false;
         }
 
@@ -1329,7 +1329,7 @@ public sealed class BozjaController
             return true;
         }
 
-        Status = $"At {Describe(_lastObjective)} - waiting for group ({arrived}/{peers} arrived).";
+        Status = $"{Describe(_lastObjective)}に到着済み - グループ待機中（{arrived}/{peers}到着）。";
         return false;
     }
 
@@ -1353,7 +1353,7 @@ public sealed class BozjaController
                     Start();
                     break;
                 case "STOP" when Running:
-                    Stop("Stopped by the multibox host.");
+                    Stop("マルチボックスのホストから停止されました。");
                     break;
             }
         }
@@ -1378,18 +1378,18 @@ public sealed class BozjaController
 
             case BoxVerb.Stop:
                 if (Running)
-                    Stop("Stopped from the multibox panel.");
+                    Stop("マルチボックス操作画面から停止されました。");
                 break;
 
             case BoxVerb.Loadout:
                 if (Loadout.TryDecode(command.Arg, out var a0, out var a1, out var ess))
                 {
                     _loadouts.Apply(a0, a1, ess);
-                    LastCommandResult = $"Loadout: {_loadouts.LastResult}";
+                    LastCommandResult = $"ロストアクション構成: {_loadouts.LastResult}";
                 }
                 else
                 {
-                    LastCommandResult = "Loadout: could not read the requested actions.";
+                    LastCommandResult = "ロストアクション構成: 指定内容を読み取れませんでした。";
                 }
                 break;
 
@@ -1401,7 +1401,7 @@ public sealed class BozjaController
                     _approach.Release();
                     _movement.Stop();
                     _errands.Begin(dataId);
-                    LastCommandResult = $"Errand: {_errands.Status}";
+                    LastCommandResult = $"移動指示: {_errands.Status}";
                 }
                 break;
 
@@ -1411,29 +1411,29 @@ public sealed class BozjaController
                 // - including ones in Gangos, ones already in the engagement, and ones on a
                 // loading screen - to go and poke UI agents.
                 if (CriticalEngagements.RegisteredEventId is { } joined)
-                    LastCommandResult = $"Sign-up: already in engagement #{joined}.";
+                    LastCommandResult = $"参加申請: 既にイベント #{joined} へ参加中です。";
                 else if (!FieldState.InFieldZone)
                     LastCommandResult =
-                        $"Sign-up: not in a field zone (in {BozjaZones.Name(Svc.ClientState.TerritoryType)}).";
+                        $"参加申請: 対応フィールド外です（現在地: {BozjaZones.Name(Svc.ClientState.TerritoryType)}）。";
                 else
                 {
                     _signUps.Begin();
-                    LastCommandResult = $"Sign-up: {_signUps.Status}";
+                    LastCommandResult = $"参加申請: {_signUps.Status}";
                 }
                 break;
 
             case BoxVerb.Cancel:
-                _errands.Cancel("Cancelled from the multibox panel.");
-                _signUps.Cancel("Cancelled from the multibox panel.");
-                LastCommandResult = "Errand cancelled.";
+                _errands.Cancel("マルチボックス操作画面から中止されました。");
+                _signUps.Cancel("マルチボックス操作画面から中止されました。");
+                LastCommandResult = "移動指示を中止しました。";
                 break;
 
             case BoxVerb.PartySupport:
                 if (command.Arg == "1")
                     _partySupport.Begin();
                 else
-                    _partySupport.Stop("Party support stopped from the panel.");
-                LastCommandResult = $"Party support: {_partySupport.Status}";
+                    _partySupport.Stop("マルチボックス操作画面からパーティ支援を停止しました。");
+                LastCommandResult = $"パーティ支援: {_partySupport.Status}";
                 break;
 
             case BoxVerb.DutyAction:
@@ -1447,11 +1447,11 @@ public sealed class BozjaController
                 if (BoxCommand.TryDecodeDutyAction(command.Arg, out var dutySlot, out var expectedAction))
                 {
                     var press = DutyActions.Press(dutySlot, expectedAction);
-                    LastCommandResult = $"Duty action {dutySlot + 1}: {press.Message}";
+                    LastCommandResult = $"Duty Action {dutySlot + 1}: {press.Message}";
                 }
                 else
                 {
-                    LastCommandResult = "Duty action: could not read which slot to press.";
+                    LastCommandResult = "Duty Action: 使用するスロットを読み取れませんでした。";
                 }
                 break;
         }
@@ -1546,15 +1546,15 @@ public sealed class BozjaController
     private string Describe(SharedObjective objective)
     {
         if (!objective.IsSet)
-            return "nothing";
+            return "目的地なし";
 
         if (objective.Kind == ObjectiveKind.CriticalEngagement)
-            return $"CE \"{_catalog.Name((ushort)objective.Id)}\"";
+            return $"CE「{_catalog.Name((ushort)objective.Id)}」";
 
         foreach (var fate in Svc.Fates)
             if (fate != null && fate.FateId == objective.Id)
-                return $"skirmish \"{fate.Name.TextValue}\"";
+                return $"スカーミッシュ「{fate.Name.TextValue}」";
 
-        return $"skirmish #{objective.Id}";
+        return $"スカーミッシュ #{objective.Id}";
     }
 }

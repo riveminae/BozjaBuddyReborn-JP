@@ -162,8 +162,8 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         if (farm is { } target && target.Territory != territory)
         {
             FarmFilterNote =
-                $"{BozjaZones.Name(target.Territory)} is where that material drops - you are in " +
-                $"{BozjaZones.Name(territory)}.";
+                $"この素材の入手場所は {BozjaZones.Name(target.Territory)} です。現在地は " +
+                $"{BozjaZones.Name(territory)} です。";
             return Choice.None;
         }
 
@@ -189,7 +189,7 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
 
         var (restrictedRegion, _) = Restriction;
         if (restrictedRegion != FieldRegionId.Unknown && FarmFilterNote == null)
-            FarmFilterNote = $"Nothing available in {FieldRegions.Label(territory, restrictedRegion)} right now.";
+            FarmFilterNote = $"{FieldRegions.Label(territory, restrictedRegion)} に現在参加可能な対象がありません。";
 
         return Choice.None;
     }

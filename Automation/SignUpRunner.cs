@@ -470,63 +470,122 @@ public sealed class SignUpRunner
         return null;
     }
 
-    private static unsafe bool Click(AtkUnitBase* addon, LabelledButton button, string semantic)
+    private unsafe bool Click(AtkUnitBase* addon, LabelledButton target, string what)
     {
-        try
+        if (addon == null)
+            return false;
+
+        var button = (AtkComponentButton*)target.Button;
+        if (button == null)
+            return false;
+
+        var ownerNode = button->AtkComponentBase.OwnerNode;
+        if (ownerNode == null)
         {
-            var node = (AtkComponentButton*)button.Button;
-            if (node == null || !node->IsEnabled)
-                return false;
+            Svc.Log.Warning($"[BozjaBuddyReborn] Sign-up: \"{target.Text}\" has no owner node; not clicking.");
+            return false;
+        }
 
-            var res = node->AtkComponentBase.OwnerNode;
-            if (res == null)
-                return false;
+        // Use the event the game attached to the button. A half-built list row can have a visible
+        // button with no event yet; refusing that frame is safer than inventing a callback.
+        var evt = ownerNode->AtkResNode.AtkEventManager.Event;
+        if (evt == null)
+        {
+            Svc.Log.Warning($"[BozjaBuddyReborn] Sign-up: \"{target.Text}\" has no attached event yet; not clicking.");
+            return false;
+        }
 
-            foreach (var evt in res->AtkEventManager.EventList)
+        // Prefer a click event in the bounded chain. API15 exposes AtkEventType here; the
+        // ECommons UIInput EventType alias is only used at the final invocation boundary.
+        var chosen = evt;
+        var node = evt;
+        for (var i = 0; i < 16 && node != null; i++)
+        {
+            var t = node->State.EventType;
+            if (t is AtkEventType.MouseClick or AtkEventType.ButtonClick)
             {
-                if (evt.State.EventType != EventType.ButtonClick)
-                    continue;
-
-                var data = new AtkEventData();
-                addon->ReceiveEvent(evt.State.EventType, (int)evt.Param, evt.AtkEvent, &data);
-                Svc.Log.Information($"[BozjaBuddyReborn] Sign-up: clicked {semantic} button \"{button.Text}\".");
-                return true;
+                chosen = node;
+                break;
             }
+            node = node->NextEvent;
         }
-        catch (Exception ex)
-        {
-            Svc.Log.Warning($"[BozjaBuddyReborn] Sign-up: {semantic} click failed: {ex.Message}");
-        }
-        return false;
+
+        // Register -> Withdraw -> Commence is one physical button whose label changes after the
+        // click. Do not permit a second click until the UI has caught up or Register can turn into
+        // an accidental Withdraw. _clicks also scopes confirmation handling to prompts we caused.
+        _clicks++;
+        _clickSettleUntilMs = Environment.TickCount64 + ClickSettleMs;
+        Svc.Log.Information(
+            $"[BozjaBuddyReborn] Sign-up: clicking \"{target.Text}\" as {what} " +
+            $"(click {_clicks}, event type {chosen->State.EventType}, param {chosen->Param}).");
+
+        // MYCBattleAreaInfo dereferences the input-data path; the convenience ReceiveEvent call
+        // with a null fourth argument has previously crashed the client. Recreate a real component
+        // click with concrete event/input data instead.
+        using var eventData = EventData.ForNormalTarget(ownerNode, addon);
+        using var inputData = InputData.Empty();
+        ClickHelper.InvokeReceiveEvent(
+            &addon->AtkEventListener,
+            (EventType)chosen->State.EventType,
+            chosen->Param,
+            eventData,
+            inputData);
+        return true;
     }
 
-    private unsafe List<LabelledButton> CollectButtons(AtkUnitBase* addon)
+    private static unsafe List<LabelledButton> CollectButtons(AtkUnitBase* addon)
     {
-        var result = new List<LabelledButton>();
-        if (addon->UldManager.NodeList == null)
-            return result;
+        var found = new List<LabelledButton>();
+        if (addon == null)
+            return found;
 
-        for (var i = 0; i < addon->UldManager.NodeListCount; i++)
+        var mgr = &addon->UldManager;
+        Walk(mgr, found, 0);
+        return found;
+
+        static void Walk(AtkUldManager* mgr, List<LabelledButton> found, int depth)
         {
-            var node = addon->UldManager.NodeList[i];
-            if (node == null || node->Type < NodeType.Component)
-                continue;
+            if (mgr == null || depth > 6 || found.Count > 64)
+                return;
+            if (mgr->LoadedState != AtkLoadState.Loaded || mgr->NodeList == null)
+                return;
 
-            try
+            var count = mgr->NodeListCount;
+            for (var i = 0; i < count; i++)
             {
-                var componentNode = (AtkComponentNode*)node;
-                var component = componentNode->Component;
-                if (component == null || component->GetComponentType() != ComponentType.Button)
+                var node = mgr->NodeList[i];
+                if (node == null || !node->IsVisible())
+                    continue;
+                if ((ushort)node->Type < 1000)
                     continue;
 
-                var button = (AtkComponentButton*)component;
-                var text = button->ButtonTextNode?.NodeText.ToString() ?? string.Empty;
-                if (text.Length > 0)
-                    result.Add(new LabelledButton((nint)button, text));
+                var component = ((AtkComponentNode*)node)->Component;
+                if (component == null)
+                    continue;
+
+                if (component->GetComponentType() == ComponentType.Button)
+                {
+                    var button = (AtkComponentButton*)component;
+                    if (button->IsEnabled)
+                        found.Add(new LabelledButton((nint)button, ReadText(button)));
+                }
+
+                Walk(&component->UldManager, found, depth + 1);
             }
-            catch { }
         }
-        return result;
+
+        static string ReadText(AtkComponentButton* button)
+        {
+            try
+            {
+                var textNode = button->ButtonTextNode;
+                return textNode == null ? string.Empty : textNode->NodeText.ToString();
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
     }
 
     private static IReadOnlyList<string> Describe(List<LabelledButton> buttons)
@@ -548,28 +607,16 @@ public sealed class SignUpRunner
         Svc.Log.Information($"[BozjaBuddyReborn] Sign-up: visible buttons = [{current}].");
     }
 
-    private static bool AnyRegistering()
-    {
-        try
-        {
-            var catalog = CriticalEngagements.Read(null);
-            foreach (var ce in catalog)
-                if (ce.State == DynamicEventState.Register)
-                    return true;
-        }
-        catch { }
-        return false;
-    }
+    private static bool AnyRegistering() => FirstRegisteringEventId() != 0;
 
     private static ushort FirstRegisteringEventId()
     {
         try
         {
-            var catalog = CriticalEngagements.Read(null);
             ushort best = 0;
-            foreach (var ce in catalog)
+            foreach (var ce in CriticalEngagements.Read(null))
             {
-                if (ce.State != DynamicEventState.Register)
+                if (!ce.IsJoinable)
                     continue;
                 if (best == 0 || ce.EventId < best)
                     best = ce.EventId;

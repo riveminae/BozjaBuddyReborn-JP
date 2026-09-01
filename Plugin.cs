@@ -51,6 +51,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly RegionResolver _regions;
     private readonly TargetSelector _selector;
     private readonly HolsterDriver _holster;
+    private readonly LostItemBoxInventory _lostItemInventory;
+    private readonly SupplyManager _supplies;
     private readonly ErrandRunner _errands;
     private readonly LoadoutDriver _loadoutDriver;
     private readonly SignUpRunner _signUps;
@@ -92,9 +94,16 @@ public sealed class Plugin : IDalamudPlugin
         _regions = new RegionResolver(_config);
         _selector = new TargetSelector(_catalog, _config, _regions, _movement);
         _holster = new HolsterDriver(_config, _lostActions);
+        _lostItemInventory = new LostItemBoxInventory(_lostActions);
+        _supplies = new SupplyManager(_config, _lostActions, _lostItemInventory);
         _errands = new ErrandRunner(_movement, _navmesh);
         _loadoutDriver = new LoadoutDriver(_lostActions);
-        _signUps = new SignUpRunner();
+
+        // Registration itself is always immediate and remote. Only the second-phase Commence is
+        // gated, and only for the one Q109C exception: confirmed complete loss of Potion Kit
+        // protection AND usable self-healing. An unavailable inventory read is not critical in
+        // SupplyManager, so this fails open rather than sacrificing a CE to uncertain telemetry.
+        _signUps = new SignUpRunner(() => !_supplies.Evaluate().CriticalNoRecovery);
         _partySupport = new PartySupportDriver(_config, _lostActions);
 
         _controller = new BozjaController(

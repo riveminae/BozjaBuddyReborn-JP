@@ -36,9 +36,11 @@ SOFTWARE.
 
 ## BOCCHI
 
-Source: <https://github.com/OhKannaDuh/BOCCHI>
+Primary source: <https://github.com/OhKannaDuh/BOCCHI>
 
 Navigation behavior and selected source/constants under `Vendor/BOCCHI/` are derived from BOCCHI commit `7847b00c313d6a7ddfe9ee126e46e10f547db9da`, licensed under **GNU AGPL-3.0**. The repository root `LICENSE` contains the corresponding complete license text. Derived source files carry an SPDX AGPL identifier and provenance comment where practical.
+
+`Vendor/BOCCHI/GeneralActions.cs` is specifically adapted from the BOCCHI maintenance fork <https://github.com/KanoNoUta/BOCCHI> at commit `2f7026ae31712b1b969362a2831df8f795607736`. That repository is also distributed under **GNU AGPL-3.0**. This provenance is kept separately because the Return helper was taken from that later maintenance implementation rather than from the pinned OhKannaDuh snapshot.
 
 ## Ocelot
 

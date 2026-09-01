@@ -138,8 +138,11 @@ public sealed class Configuration : IPluginConfiguration
     // within the same plateau drop different items. Setting a farm target restricts selection
     // to objectives that actually drop it.
 
-    /// <summary>Item id of the relic material to farm, or 0 for "anything".</summary>
+    /// <summary>Runtime compatibility mirror of the current character's farm target.</summary>
     public uint FarmMaterialItemId;
+
+    /// <summary>Resistance Relic farm target keyed by Dalamud LocalContentId.</summary>
+    public Dictionary<ulong, uint> CharacterFarmMaterialItemIds = [];
 
     /// <summary>After an explicitly-selected material completes, continue to the next shortage in this territory.</summary>
     public bool RelicAutoContinue = true;

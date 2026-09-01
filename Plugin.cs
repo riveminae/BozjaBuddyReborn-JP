@@ -33,6 +33,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly CeCatalog _catalog = new();
     private readonly LostActionCatalog _lostActions = new();
     private readonly RelicTracker _relicTracker = new();
+    private readonly CharacterRelicStateStore _characterRelicState;
 
     private readonly NavmeshIpc _navmesh;
     private readonly CombatDirector _director;
@@ -74,6 +75,7 @@ public sealed class Plugin : IDalamudPlugin
         _config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         if (ConfigMigration.Apply(_config))
             ConfigSaver.Save(_config);
+        _characterRelicState = new CharacterRelicStateStore(_config);
 
         _navmesh = new NavmeshIpc(pluginInterface);
         _director = new CombatDirector(pluginInterface, _config);
@@ -215,6 +217,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnUpdate(object _)
     {
+        _characterRelicState.Tick();
         SyncCallbackLogging();
         SyncMultiboxLink();
 

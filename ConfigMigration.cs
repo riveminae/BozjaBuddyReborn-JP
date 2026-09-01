@@ -24,6 +24,7 @@ public static class ConfigMigration
         config.IdleSpots ??= [];
         config.LostActionBringPermissions ??= [];
         config.LostActionAutoUsePermissions ??= [];
+        config.CharacterFarmMaterialItemIds ??= [];
         config.AutoLostActions ??= [];
         config.PartySupportActions ??= [];
 

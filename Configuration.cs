@@ -5,6 +5,13 @@ using Dalamud.Configuration;
 namespace BozjaBuddyReborn;
 
 /// <summary>How the runner answers something that aggroes onto it mid-route.</summary>
+public enum RelicFarmStopMode : byte
+{
+    Unlimited = 0,
+    SelectedMaterialComplete = 1,
+    CurrentStageComplete = 2,
+}
+
 public enum TravelAggroResponse : byte
 {
     /// <summary>
@@ -61,6 +68,9 @@ public sealed class Configuration : IPluginConfiguration
     /// just ours.
     /// </summary>
     public bool LogUiCallbacks;
+
+    /// <summary>Test-only: log receive events from MYCItemBox/MYCItemBagTrade to identify safe transfer callbacks.</summary>
+    public bool LogMycItemBoxCallbacks;
 
     /// <summary>
     /// Walk into range of the current target during a fight and stay there.
@@ -130,6 +140,12 @@ public sealed class Configuration : IPluginConfiguration
 
     /// <summary>Item id of the relic material to farm, or 0 for "anything".</summary>
     public uint FarmMaterialItemId;
+
+    /// <summary>After an explicitly-selected material completes, continue to the next shortage in this territory.</summary>
+    public bool RelicAutoContinue = true;
+
+    /// <summary>Default is unattended/unlimited; optional stops can end at the selected material or current stage.</summary>
+    public RelicFarmStopMode RelicFarmStopMode = RelicFarmStopMode.Unlimited;
 
     /// <summary>
     /// Restrict work to one third of the zone: 0 = anywhere, 1/2/3 = Z1/Z2/Z3. Ignored while a
@@ -300,6 +316,9 @@ public sealed class Configuration : IPluginConfiguration
 
     /// <summary>Target Reraiser reserve after a differential refill.</summary>
     public int SupplyReraiserTarget = 3;
+
+    /// <summary>Target reserve for the role's primary self-healing Lost Action.</summary>
+    public int SupplyMainHealTarget = 10;
 
     /// <summary>Target Lost Manawall reserve after a differential refill.</summary>
     public int SupplyEmergencyDefenseTarget = 2;

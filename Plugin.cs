@@ -42,6 +42,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MultiboxLink _link = new();
     private readonly AggroAvoidance _aggroAvoidance;
     private readonly Movement _movement;
+    private readonly MycItemBoxCallbackProbe _mycItemBoxProbe;
     private readonly CombatApproach _approach;
     private readonly RegionResolver _regions;
     private readonly TargetSelector _selector;
@@ -79,9 +80,10 @@ public sealed class Plugin : IDalamudPlugin
         _deathRecovery = new DeathRecoveryDriver(_textAdvance);
         _aggroAvoidance = new AggroAvoidance(_config);
         _movement = new Movement(_navmesh, _config, _aggroAvoidance, pluginInterface);
+        _mycItemBoxProbe = new MycItemBoxCallbackProbe(_config);
         _approach = new CombatApproach(_navmesh, _config);
         _regions = new RegionResolver(_config);
-        _selector = new TargetSelector(_catalog, _config, _regions);
+        _selector = new TargetSelector(_catalog, _config, _regions, _movement);
         _holster = new HolsterDriver(_config, _lostActions);
         _errands = new ErrandRunner(_movement, _navmesh);
         _loadoutDriver = new LoadoutDriver(_lostActions);
@@ -360,6 +362,8 @@ public sealed class Plugin : IDalamudPlugin
         catch { /* best effort */ }
 
         _link.Dispose();
+        try { _mycItemBoxProbe.Dispose(); }
+        catch { /* best effort */ }
 
         Svc.Commands.RemoveHandler(CommandMain);
         Svc.Commands.RemoveHandler(CommandRelic);

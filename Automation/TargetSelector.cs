@@ -21,11 +21,12 @@ namespace BozjaBuddyReborn.Automation;
 /// the same objective without any coordination at all, because they are running the same rule
 /// over the same game state.
 /// </summary>
-public sealed class TargetSelector(CeCatalog catalog, Configuration config, RegionResolver regions)
+public sealed class TargetSelector(CeCatalog catalog, Configuration config, RegionResolver regions, Movement movement)
 {
     private readonly CeCatalog _catalog = catalog;
     private readonly Configuration _config = config;
     private readonly RegionResolver _regions = regions;
+    private readonly Movement _movement = movement;
 
     /// <summary>
     /// The material being farmed, or null. Resolved once per selection pass so the region and
@@ -210,7 +211,6 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
     {
         CeSnapshot? best = null;
         var bestRank = int.MaxValue;
-        var bestDistance = float.MaxValue;
 
         foreach (var ce in engagements)
         {
@@ -219,13 +219,10 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
 
             var largeScale = _catalog.IsLargeScale(ce.EventId);
             var rank = largeScale ? int.MinValue : PriorityRank(ce.EventId);
-            var distance = ce.HasPosition ? Movement.DistanceToPlayer(ce.Position) : float.MaxValue;
-
-            if (best == null || Better(rank, ce.EventId, distance, bestRank, best.Value.EventId, bestDistance, deterministic))
+            if (best == null || rank < bestRank || (rank == bestRank && ce.EventId < best.Value.EventId))
             {
                 best = ce;
                 bestRank = rank;
-                bestDistance = distance;
             }
         }
 
@@ -331,7 +328,7 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         uint bestId = 0;
         var bestName = string.Empty;
         var bestPosition = Vector3.Zero;
-        var bestDistance = float.MaxValue;
+        var bestCost = float.MaxValue;
 
         try
         {
@@ -350,10 +347,10 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
                 if (!PassesFarmFilter(ObjectiveKind.Fate, fate.FateId, fate.Position, DropActivity.Skirmish))
                     continue;
 
-                var distance = Movement.DistanceToPlayer(fate.Position);
+                var cost = _movement.EstimateTravelCost(fate.Position);
 
                 var better = bestId == 0
-                    || (!deterministic && distance < bestDistance)
+                    || (!deterministic && (cost < bestCost || (cost == bestCost && fate.FateId < bestId)))
                     || (deterministic && fate.FateId < bestId);
 
                 if (!better)
@@ -362,7 +359,7 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
                 bestId = fate.FateId;
                 bestName = fate.Name.TextValue;
                 bestPosition = fate.Position;
-                bestDistance = distance;
+                bestCost = cost;
             }
         }
         catch

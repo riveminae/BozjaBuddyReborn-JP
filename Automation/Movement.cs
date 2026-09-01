@@ -230,6 +230,13 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
         return me == null ? float.MaxValue : HorizontalDistance(me.Position, world);
     }
 
+    /// <summary>Current BOCCHI-style yalm-equivalent cost used to rank fresh skirmish destinations.</summary>
+    public float EstimateTravelCost(Vector3 world)
+    {
+        var me = Svc.Objects.LocalPlayer;
+        return me == null ? float.MaxValue : _fieldRouter.EstimateCost(me.Position, world);
+    }
+
     /// <summary>
     /// Begin (or continue) travelling to a destination. Safe to call every tick with the same
     /// destination - it only issues a new path when the destination changes or a stall is

@@ -72,6 +72,68 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
     public bool IsRoutingTo(Vector3 destination) =>
         _goal != Vector3.Zero && Movement.HorizontalDistance(_goal, destination) <= GoalIdentityRadius;
 
+    /// <summary>Estimate the cheapest currently usable BOCCHI-style route without mutating route state.</summary>
+    public float EstimateCost(Vector3 start, Vector3 destination)
+    {
+        var direct = Movement.HorizontalDistance(start, destination);
+        if (!_config.UseBocchiNavigation || !FieldState.InFieldZone)
+            return direct;
+
+        var nodes = FieldAethernet.ForTerritory(Svc.ClientState.TerritoryType);
+        if (nodes.Count == 0)
+            return direct;
+
+        var maxDirect = _config.NavigationMaxDirectWalkDistance > 0
+            ? _config.NavigationMaxDirectWalkDistance
+            : NavigationConstants.MaxDirectWalkDistance;
+        if (direct <= maxDirect)
+            return direct;
+
+        var hopCost = _config.NavigationAethernetHopCost > 0
+            ? _config.NavigationAethernetHopCost
+            : NavigationConstants.AethernetHopCost;
+        var returnCost = _config.NavigationReturnCost > 0
+            ? _config.NavigationReturnCost
+            : NavigationConstants.ReturnCost;
+
+        var best = direct;
+        if (_config.UseAethernetTravel && _lifestream.Available && nodes.Count >= 2)
+        {
+            foreach (var departure in nodes)
+            foreach (var inbound in nodes)
+            {
+                if (departure.CustomAetheryteId == inbound.CustomAetheryteId)
+                    continue;
+                best = MathF.Min(best,
+                    Movement.HorizontalDistance(start, departure.Position)
+                    + hopCost
+                    + Movement.HorizontalDistance(inbound.Position, destination));
+            }
+        }
+
+        var camp = FieldAethernet.BaseCamp(Svc.ClientState.TerritoryType);
+        if (_config.UseReturnRouting
+            && camp is { } baseCamp
+            && Movement.HorizontalDistance(start, baseCamp.Position) > NavigationConstants.CampRadius
+            && !Svc.Condition[ConditionFlag.InCombat]
+            && GeneralActions.ReturnReady())
+        {
+            best = MathF.Min(best, returnCost + Movement.HorizontalDistance(baseCamp.Position, destination));
+            if (_config.UseAethernetTravel && _lifestream.Available)
+            {
+                foreach (var inbound in nodes)
+                {
+                    if (inbound.IsBaseCamp)
+                        continue;
+                    best = MathF.Min(best, returnCost + hopCost
+                        + Movement.HorizontalDistance(inbound.Position, destination));
+                }
+            }
+        }
+
+        return best;
+    }
+
     public void Reset()
     {
         _goal = Vector3.Zero;
@@ -288,6 +350,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         _lastTeleportAttemptMs = 0;
         _teleportAttempts = 0;
         _returnStartedMs = 0;
+        _returnConfirmationSent = false;
 
         var territory = Svc.ClientState.TerritoryType;
         var nodes = FieldAethernet.ForTerritory(territory);

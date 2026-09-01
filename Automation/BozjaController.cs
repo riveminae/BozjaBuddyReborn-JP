@@ -4,6 +4,7 @@ using System.Numerics;
 using BozjaBuddyReborn.External;
 using BozjaBuddyReborn.Game;
 using BozjaBuddyReborn.Multibox;
+using BozjaBuddyReborn.Relic;
 using Dalamud.Game.ClientState.Conditions;
 using ECommons.DalamudServices;
 using FFXIVClientStructs.FFXIV.Client.Game.InstanceContent;
@@ -53,6 +54,7 @@ public sealed class BozjaController
     private readonly LoadoutDriver _loadouts;
     private readonly SignUpRunner _signUps;
     private readonly PartySupportDriver _partySupport;
+    private readonly RelicFarmCoordinator _relicFarm;
     private readonly DeathRecoveryDriver _deathRecovery;
     private readonly DependencySupervisor _dependencies;
     private readonly SafeStopCoordinator _safeStop = new();
@@ -114,6 +116,7 @@ public sealed class BozjaController
         _partySupport = partySupport;
         _deathRecovery = deathRecovery;
         _dependencies = dependencies;
+        _relicFarm = new RelicFarmCoordinator(config, new RelicTracker());
     }
 
     /// <summary>The zone third the character is standing in right now.</summary>
@@ -132,6 +135,22 @@ public sealed class BozjaController
 
     public void Start()
     {
+        if (Svc.Objects.LocalPlayer == null)
+        {
+            Running = false;
+            State = ControllerState.Blocked;
+            Status = "ログイン後に開始してください。";
+            return;
+        }
+
+        if (!FieldState.InFieldZone)
+        {
+            Running = false;
+            State = ControllerState.Blocked;
+            Status = "南方ボズヤ戦線またはザトゥノル高原の中で開始してください。";
+            return;
+        }
+
         Running = true;
         _reportedArrival = false;
         _committed = false;
@@ -312,11 +331,7 @@ public sealed class BozjaController
 
         if (!FieldState.InFieldZone)
         {
-            State = ControllerState.Blocked;
-            Status = $"Not in a Bozja field zone (in {BozjaZones.Name(Svc.ClientState.TerritoryType)}).";
-            _director.Disengage();
-            _approach.Release();
-            _movement.Stop();
+            Stop("対応エリア外へ移動したため自動周回を停止しました。");
             return;
         }
 
@@ -360,6 +375,21 @@ public sealed class BozjaController
 
         Engagements = CriticalEngagements.Read(_catalog);
         CurrentRegion = FieldRegions.Current();
+
+        // The first Relic target is always manual. Once that explicit target becomes satisfied,
+        // advance inside the current territory before CE/FATE selection. Existing sticky-objective
+        // permission checks decide whether the current skirmish remains valid for the new target.
+        var relicUpdate = _relicFarm.Tick(Svc.ClientState.TerritoryType);
+        if (relicUpdate.Stop)
+        {
+            Stop(relicUpdate.JapaneseStatus);
+            return;
+        }
+        if (relicUpdate.ChangedTarget)
+        {
+            Svc.Log.Information(
+                $"[BozjaBuddyReborn] Resistance Relic farm target advanced from item {relicUpdate.PreviousItemId} to {relicUpdate.CurrentItemId}.");
+        }
 
         // Critical Engagements are a remote UI workflow, not a travel objective. Register while
         // continuing the current skirmish; SignUpRunner will press Commence immediately if this
@@ -512,14 +542,25 @@ public sealed class BozjaController
 
         var region = restricted != FieldRegionId.Unknown ? restricted : CurrentRegion;
 
-        if (region == FieldRegionId.Unknown || !TryGetIdleSpot(territory, region, out var spot))
+        // v1.1 stages at the field aethernet whenever possible. A Relic restriction picks
+        // a node classified inside that exact region; ordinary idle uses the nearest node. This
+        // lets the same BOCCHI router exploit the aethernet instantly when the next activity pops.
+        Vector3 spot;
+        string label;
+        if (TryGetAethernetIdleSpot(territory, region, out spot, out var aethernetLabel))
+        {
+            label = aethernetLabel;
+        }
+        else if (region != FieldRegionId.Unknown && TryGetIdleSpot(territory, region, out spot))
+        {
+            label = FieldRegions.Label(territory, region);
+        }
+        else
         {
             Status = $"{reason} Holding position.";
             _movement.Stop();
             return;
         }
-
-        var label = FieldRegions.Label(territory, region);
 
         if (_movement.HasArrived(spot, _config.IdleArriveRange))
         {
@@ -542,6 +583,60 @@ public sealed class BozjaController
         _movement.TravelTo(spot, _config.IdleArriveRange);
         Status = $"{reason} Moving to the {label} staging point " +
                  $"({Movement.DistanceToPlayer(spot):F0}y).";
+    }
+
+    /// <summary>Choose an aethernet node for idle staging, resolving its actual navmesh floor.</summary>
+    private bool TryGetAethernetIdleSpot(
+        uint territory,
+        FieldRegionId preferredRegion,
+        out Vector3 spot,
+        out string label)
+    {
+        spot = Vector3.Zero;
+        label = string.Empty;
+        var nodes = FieldAethernet.ForTerritory(territory);
+        if (nodes.Count == 0)
+            return false;
+
+        FieldAethernet.Node? best = null;
+        var bestDistance = float.MaxValue;
+        foreach (var node in nodes)
+        {
+            // For a Relic/region restriction, never choose a node confidently belonging to a
+            // different region. The base camp is allowed only if its own position classifies into
+            // the requested region. Unknown classification is not trusted for a restricted farm.
+            if (preferredRegion != FieldRegionId.Unknown
+                && FieldRegions.ClassifyByPosition(territory, node.Position) != preferredRegion)
+                continue;
+
+            var distance = Movement.DistanceToPlayer(node.Position);
+            if (best == null || distance < bestDistance)
+            {
+                best = node;
+                bestDistance = distance;
+            }
+        }
+
+        if (best is not { } selected)
+            return false;
+
+        var grounded = _navmesh.ResolveGroundPoint(selected.Position.X, selected.Position.Z);
+        if (grounded == Vector3.Zero)
+            grounded = selected.Position;
+        spot = grounded;
+
+        try
+        {
+            var place = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.PlaceName>()?
+                .GetRowOrDefault(selected.PlaceNameId)?.Name.ExtractText();
+            label = string.IsNullOrWhiteSpace(place) ? "エーテライト" : place;
+        }
+        catch
+        {
+            label = "エーテライト";
+        }
+
+        return true;
     }
 
     /// <summary>Resolve a configured staging point to a ground position, cached per key.</summary>

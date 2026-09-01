@@ -123,7 +123,7 @@ public sealed class RelicWindow : Window
                         ConfigSaver.Save(_config);
                     }
                 }
-                else if (ImGui.Button($"Farm##farm{m.ItemId}"))
+                else if (ImGui.Button($"周回開始##farm{m.ItemId}"))
                 {
                     _config.FarmMaterialItemId = m.ItemId;
                     ConfigSaver.Save(_config);
@@ -151,7 +151,7 @@ public sealed class RelicWindow : Window
         if (_config.FarmMaterialItemId != 0 && ZoneDrops.For(_config.FarmMaterialItemId) is { } active2)
         {
             ImGui.Separator();
-            ImGui.TextColored(Blue, $"Farm中: {active2.Describe()}");
+            ImGui.TextColored(Blue, $"周回中: {active2.Describe()}");
             ImGui.SameLine();
             if (ImGui.SmallButton("解除##farmclear"))
             {
@@ -174,7 +174,7 @@ public sealed class RelicWindow : Window
         var statusColour = p.QuestComplete ? Green : p.QuestAccepted ? Yellow : Grey;
         var statusText = p.QuestComplete
             ? (stage.OneTime ? "完了" : "段階解放済み")
-            : p.QuestAccepted ? $"進行中（step {p.QuestSequence}）" : "未開始";
+            : p.QuestAccepted ? $"進行中（クエスト進行度 {p.QuestSequence}）" : "未開始";
 
         var header = $"{stage.Order}. {stage.Name}";
         if (stage.ItemLevel.Length > 0)

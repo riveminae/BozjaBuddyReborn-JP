@@ -5,9 +5,9 @@ ROOT = Path(__file__).resolve().parents[2]
 P = ROOT / "Plugin.cs"
 text = P.read_text(encoding="utf-8-sig")
 
-# CI replays packets against the final composed branch. P12-02 inserts character-state wiring
-# immediately after migration, so the old exact multiline "new" block is no longer stable.
-if "ConfigMigration.Apply(_config)" in text:
+# CI replays packets against the final composed branch. P12-03 upgrades this direct migration
+# wiring to ConfigRecovery.Load, so either marker means the migration responsibility is present.
+if "ConfigRecovery.Load(pluginInterface)" in text or "ConfigMigration.Apply(_config)" in text:
     print("Plugin.cs: config migration already wired")
 else:
     anchor = "        _config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();\n"

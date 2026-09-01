@@ -24,7 +24,6 @@ VISIBLE_METHODS = {
 }
 
 # Pure technical/game vocabulary is allowed to remain Latin when it is itself the canonical term.
-# Sentences made only of English words are not allowed just because they contain one of these.
 TECH_ONLY = {
     "CE",
     "DPS",
@@ -46,8 +45,6 @@ STRING_RE = re.compile(r'(?<!@)\$?"(?:\\.|[^"\\])*"')
 
 
 def strip_comments(text: str) -> str:
-    # Preserve strings while removing comments well enough for ImGui call discovery. This is not a
-    # C# parser; it deliberately errs toward reporting a candidate rather than rewriting source.
     out: list[str] = []
     i = 0
     in_string = False
@@ -112,10 +109,6 @@ def iter_calls(text: str):
 
 
 def literal_value(token: str) -> str:
-    # We only need the human-visible shape, not a complete C# escape decoder. In particular,
-    # running UTF-8 Japanese bytes through Python's unicode_escape corrupts them into C1 control
-    # characters and then the Windows runner cannot print the result. Preserve Unicode verbatim
-    # and normalize the few escapes relevant to UI text.
     first = token.find('"')
     body = token[first + 1 : -1]
     return (
@@ -141,8 +134,6 @@ def is_internal_or_format(value: str) -> bool:
 
 
 def main() -> int:
-    # GitHub's Windows runner may expose a cp1252 stdout even though every repository file is
-    # UTF-8. Force the diagnostic stream to match the source we are auditing.
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     except Exception:
@@ -157,6 +148,13 @@ def main() -> int:
                 continue
             line = text.count("\n", 0, offset) + 1
             for token in STRING_RE.findall(call):
+                # Interpolated strings are expressions, not one direct literal: embedded ternaries
+                # and format strings made the first audit report fragments such as `(you)` from a
+                # dead branch. High-value interpolated status invariants are covered explicitly by
+                # validate_v110_contract.py. This gate is intentionally strict about DIRECT fixed
+                # visible strings, which is where accidental English UI copy normally enters.
+                if token.startswith('$"'):
+                    continue
                 value = literal_value(token)
                 if is_internal_or_format(value):
                     continue
@@ -167,16 +165,14 @@ def main() -> int:
                 findings.append((path.name, line, method, value.replace("\n", "\\n")))
 
     if not findings:
-        print("visible Japanese UI audit: no English-only direct ImGui literals found")
+        print("visible Japanese UI audit: PASS - no English-only direct ImGui literals found")
         return 0
 
-    print("visible Japanese UI audit: review candidates")
+    print("visible Japanese UI audit: FAIL - English-only direct ImGui literals found")
     for file, line, method, value in findings:
         print(f"  {file}:{line} ImGui.{method}: {value}")
-    print(f"candidates={len(findings)}")
-    # Report-only for the first pass. Once current findings are triaged/fixed, CI promotes this to
-    # a strict gate so new English-only visible literals cannot creep back in.
-    return 0
+    print(f"findings={len(findings)}")
+    return 1
 
 
 if __name__ == "__main__":

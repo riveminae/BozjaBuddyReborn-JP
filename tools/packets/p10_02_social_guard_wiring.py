@@ -18,8 +18,8 @@ replace_once(
     """    private readonly PartySupportDriver _partySupport;\n    private readonly BozjaController _controller;\n    private readonly SocialRequestGuard _socialRequests;\n""",
 )
 replace_once(
-    """        _controller = new BozjaController(\n            _config, _catalog, _selector, _movement, _director, _approach, _holster, _link, _navmesh, _regions,\n            _errands, _loadoutDriver, _signUps, _partySupport, _dependencies);\n\n        _mainWindow = new MainWindow""",
-    """        _controller = new BozjaController(\n            _config, _catalog, _selector, _movement, _director, _approach, _holster, _link, _navmesh, _regions,\n            _errands, _loadoutDriver, _signUps, _partySupport, _dependencies);\n        _socialRequests = new SocialRequestGuard(_config, () => _controller.Running);\n\n        _mainWindow = new MainWindow""",
+    """        _controller = new BozjaController(\n            _config, _catalog, _selector, _movement, _director, _approach, _holster, _link, _navmesh, _regions,\n            _errands, _loadoutDriver, _signUps, _partySupport, _deathRecovery, _dependencies);\n\n        _mainWindow = new MainWindow""",
+    """        _controller = new BozjaController(\n            _config, _catalog, _selector, _movement, _director, _approach, _holster, _link, _navmesh, _regions,\n            _errands, _loadoutDriver, _signUps, _partySupport, _deathRecovery, _dependencies);\n        _socialRequests = new SocialRequestGuard(_config, () => _controller.Running);\n\n        _mainWindow = new MainWindow""",
 )
 replace_once(
     """        try { _director.ReleaseControl(); }\n        catch { /* best effort */ }\n\n        _link.Dispose();\n""",

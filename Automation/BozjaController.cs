@@ -116,6 +116,9 @@ public sealed class BozjaController
     public ControllerState State { get; private set; } = ControllerState.Idle;
     public string Status { get; private set; } = "Stopped.";
     public SharedObjective CurrentObjective => _lastObjective;
+    public string TravelRoute => _movement.RouteDescription;
+    public FieldTravelMode TravelMode => _movement.TravelMode;
+    public bool LifestreamAvailable => _movement.LifestreamAvailable;
 
     /// <summary>Live engagement snapshot from the last tick, for the UI.</summary>
     public IReadOnlyList<CeSnapshot> Engagements { get; private set; } = [];
@@ -809,7 +812,7 @@ public sealed class BozjaController
         if (IsDodging())
         {
             State = ControllerState.Travelling;
-            Status = "Yielding to BossMod - dodging a mechanic.";
+            Status = "BossModに移動制御を渡してギミックを回避しています。";
             _approach.Release();
             _movement.Suspend();
             _director.Travel(_config.UseBossModAvoidance);
@@ -828,9 +831,13 @@ public sealed class BozjaController
             // it back BEFORE issuing the travel path, never after.
             _approach.Release();
 
+            // On-foot survival may use instant Lost Actions. The driver has an absolute mounted
+            // guard, so this can never be the reason a travelling mount is dismissed.
+            _holster.TickTravelSurvival();
+
             if (!_movement.TravelTo(destination, range))
             {
-                Status = "vnavmesh could not start a path.";
+                Status = "vnavmeshで経路を開始できませんでした。";
                 return;
             }
 
@@ -857,13 +864,13 @@ public sealed class BozjaController
 
             if (_movement.AvoidingEnemy is { } enemy)
             {
-                Status = $"Travelling to {Describe(objective)} ({distance:F0}y) - " +
-                         $"routing around {enemy.Name} (Lv{enemy.Level}).";
+                Status = $"{Describe(objective)}へ移動中 ({distance:F0}y) - " +
+                         $"危険な敵 {enemy.Name} [{enemy.Strength switch { Game.FieldEnemyStrength.IV => "IV", Game.FieldEnemyStrength.V => "V", Game.FieldEnemyStrength.Star => "★", _ => "?" }}] を迂回中。";
                 return;
             }
 
-            Status = $"Travelling to {Describe(objective)} ({distance:F0}y" +
-                     (_movement.RepathCount > 0 ? $", {_movement.RepathCount} repaths" : "") +
+            Status = $"{Describe(objective)}へ移動中 ({distance:F0}y / {_movement.RouteDescription}" +
+                     (_movement.RepathCount > 0 ? $", 再経路 {_movement.RepathCount}" : "") +
                      (_movement.RejectedIssues > 0 ? $", {_movement.RejectedIssues} refused" : "") +
                      // Detours that were needed and could not be used. Worth naming: this is the
                      // difference between "the route was clear" and "the route was not clear and
@@ -924,7 +931,7 @@ public sealed class BozjaController
         // Cannot fight from a mount, so this has to land before the rotation is armed.
         if (!Mount.EnsureDismounted())
         {
-            Status = "Under attack - dismounting to fight back.";
+            Status = "攻撃を受けています。反撃のためマウントから降りています。";
             _approach.Release();
             _director.Travel(_config.UseBossModAvoidance);
             return;

@@ -106,12 +106,20 @@ public sealed class MainWindow : Window
         ImGui.SameLine();
         ImGui.TextWrapped(_controller.Status);
 
+        if (_controller.Running)
+        {
+            ImGui.TextColored(Grey, $"経路: {_controller.TravelRoute} / Lifestream: {(_controller.LifestreamAvailable ? "接続" : "未接続")}");
+            var me = Svc.Objects.LocalPlayer;
+            if (me != null && me.MaxHp > 0)
+                ImGui.TextColored(Grey, $"HP: {me.CurrentHp * 100f / me.MaxHp:F0}% / ロール: {SurvivalPolicy.CurrentRole()}");
+        }
+
         // The Lost Action driver gets its own line only while it has something to say. Its presses
         // also appear under the duty-action bar, but a load that never lands is reported nowhere
         // else - and "the driver quietly did nothing" is precisely the failure this line exists
         // to make visible.
         if (_config.AutoUseLostActions && _controller.LastLostAction.Length > 0)
-            ImGui.TextColored(Grey, $"Lost Actions: {_controller.LastLostAction}");
+            ImGui.TextColored(Grey, $"ロストアクション: {_controller.LastLostAction}");
 
         DrawPartySupport();
         DrawZonePicker();
@@ -166,7 +174,7 @@ public sealed class MainWindow : Window
             // live here would just let the two contradict each other.
             ImGui.TextColored(Blue, FieldRegions.Label(locked.Territory, locked.Region));
             ImGui.SameLine();
-            ImGui.TextColored(Grey, "(set by the farm target)");
+            ImGui.TextColored(Grey, "（RelicのFarm対象から自動設定）");
             return;
         }
 
@@ -200,7 +208,7 @@ public sealed class MainWindow : Window
         var territory = Svc.ClientState.TerritoryType;
         if (!BozjaZones.IsFieldZone(territory))
         {
-            ImGui.TextColored(Yellow, $"Not in a Bozja field zone (currently {BozjaZones.Name(territory)}).");
+            ImGui.TextColored(Yellow, $"南方ボズヤ戦線/ザトゥノル高原の外にいます（現在: {BozjaZones.Name(territory)}）。");
             return;
         }
 
@@ -224,7 +232,7 @@ public sealed class MainWindow : Window
 
         if (!FieldState.Available)
         {
-            ImGui.TextColored(Yellow, "Bozja director state is not initialised yet.");
+            ImGui.TextColored(Yellow, "ボズヤのフィールド状態を初期化待ちです。");
             return;
         }
 
@@ -250,7 +258,7 @@ public sealed class MainWindow : Window
         var engagements = _controller.Engagements;
         if (engagements.Count == 0)
         {
-            ImGui.TextColored(Grey, "No Critical Engagements published for this zone.");
+            ImGui.TextColored(Grey, "現在参加可能なクリティカルエンゲージメントはありません。");
             return;
         }
 

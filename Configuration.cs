@@ -20,7 +20,7 @@ public enum TravelAggroResponse : byte
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 2;
+    public int Version { get; set; } = 3;
 
     // --- combat roles -------------------------------------------------------
     // The split is the design: BossMod dodges, RSR presses buttons. Both default on.
@@ -246,6 +246,12 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Extra margin added when routing around a danger zone.</summary>
     public float DangerClearance = 6f;
 
+    /// <summary>Additional clearance around ★ enemies; they are always dangerous.</summary>
+    public float DangerStarExtraClearance = 5f;
+
+    /// <summary>Log each previously unseen field-rank raw icon pair once in test diagnostics.</summary>
+    public bool EnemyRankDiagnostics = true;
+
     /// <summary>
     /// Enemies within this distance of the destination are ignored - they are almost certainly
     /// the objective's own mobs, and routing around those would mean never arriving.
@@ -256,6 +262,27 @@ public sealed class Configuration : IPluginConfiguration
     /// including approaches to open-field staging points that have no objective mobs at all.
     /// </summary>
     public float DangerIgnoreNearObjective = 10f;
+
+    // --- survivability automation -------------------------------------------
+
+    /// <summary>Run the v1.1 survivability-first Lost Action policy.</summary>
+    public bool AutoSurvivalLostActions = true;
+
+    public float TankSurvivalHealFraction = 0.55f;
+    public float TankSurvivalEmergencyFraction = 0.30f;
+    public float HealerSurvivalHealFraction = 0.70f;
+    public float HealerSurvivalEmergencyFraction = 0.45f;
+    public float DpsSurvivalHealFraction = 0.65f;
+    public float DpsSurvivalEmergencyFraction = 0.40f;
+
+    /// <summary>Fast guard between two automatic survival spends; the game remains the final cooldown authority.</summary>
+    public int SurvivalUseGapMs = 750;
+
+    /// <summary>Per-row bring/refill overrides. Missing = policy default; Deep Essences default false.</summary>
+    public Dictionary<byte, bool> LostActionBringPermissions = [];
+
+    /// <summary>Per-row automatic-use overrides. Missing = policy default; Deep Essences default false.</summary>
+    public Dictionary<byte, bool> LostActionAutoUsePermissions = [];
 
     // --- lost actions -------------------------------------------------------
 

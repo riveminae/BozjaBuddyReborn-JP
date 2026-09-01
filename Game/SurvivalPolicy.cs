@@ -161,7 +161,7 @@ public sealed class SurvivalPolicy(Configuration config, LostActionCatalog catal
         _byEnglishName.Clear();
         try
         {
-            var actions = Svc.Data.GetExcelSheet<Action>(ClientLanguage.English);
+            var actions = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Action>(ClientLanguage.English);
             if (actions == null)
                 return;
 

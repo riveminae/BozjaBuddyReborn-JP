@@ -89,13 +89,17 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
 
     private readonly Configuration _config = config;
     private readonly LostActionCatalog _catalog = catalog;
+    private readonly SurvivalPolicy _survival = new(config, catalog);
 
     private long _lastUseMs;
+    private long _lastSurvivalUseMs;
 
     private Phase _phase;
     private byte _pendingRow;
     private uint _pendingActionId;
     private long _loadIssuedMs;
+    private bool _pendingTargetSelf;
+    private bool _pendingSurvival;
 
     /// <summary>MYCTemporaryItem row id of the last action actually used, or 0. For the UI.</summary>
     public byte LastUsedRow { get; private set; }
@@ -112,6 +116,17 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
     /// <returns>True only when a charge was actually spent this tick.</returns>
     public bool Tick(bool inCombat)
     {
+        // Absolutely nothing is fired while mounted. Even a benign item/action can force a
+        // dismount and turn an IV/V/★ pull into a death.
+        if (Mount.IsMounted)
+        {
+            Abandon();
+            return false;
+        }
+
+        if (_config.AutoSurvivalLostActions && TrySurvival(travelling: false))
+            return true;
+
         if (!_config.AutoUseLostActions || _config.AutoLostActions.Count == 0)
         {
             Abandon();
@@ -200,6 +215,98 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
         return false;
     }
 
+    /// <summary>
+    /// Survival-only pass used while travelling on foot. It intentionally only considers
+    /// instant candidates; movement is never paused to cast a heal.
+    /// </summary>
+    public bool TickTravelSurvival()
+    {
+        if (Mount.IsMounted || !_config.AutoSurvivalLostActions)
+        {
+            if (Mount.IsMounted)
+                Abandon();
+            return false;
+        }
+
+        return TrySurvival(travelling: true);
+    }
+
+    private bool TrySurvival(bool travelling)
+    {
+        var me = Svc.Objects.LocalPlayer;
+        if (me == null || me.CurrentHp == 0 || me.IsCasting)
+            return false;
+
+        var now = Environment.TickCount64;
+
+        // Finish an outstanding survival load before choosing anything else. A generic load is
+        // abandoned when we have already left the engagement and are now travelling.
+        if (_phase == Phase.WaitingForLoad)
+        {
+            if (_pendingSurvival)
+                return FinishLoad(now) || _phase == Phase.WaitingForLoad;
+            if (travelling)
+                Abandon();
+        }
+
+        if (now - _lastSurvivalUseMs < _config.SurvivalUseGapMs)
+            return false;
+
+        var holster = FieldState.Holster();
+        if (holster.Length == 0)
+            return false;
+
+        // Potion Kit is prophylaxis: maintain Auto-potion whenever naturally unmounted.
+        if (!_survival.HasAutoPotion()
+            && TrySurvivalNamed("Resistance Potion Kit", holster, now, targetSelf: false))
+            return true;
+
+        var hp = SurvivalPolicy.HpFraction();
+        var list = hp <= _survival.EmergencyThreshold
+            ? _survival.EmergencyPriority(travelling)
+            : hp <= _survival.HealThreshold
+                ? _survival.HealPriority(travelling)
+                : null;
+
+        if (list == null)
+            return false;
+
+        foreach (var name in list)
+            if (TrySurvivalNamed(name, holster, now, targetSelf: true))
+                return true;
+
+        return false;
+    }
+
+    private bool TrySurvivalNamed(string englishName, byte[] holster, long now, bool targetSelf)
+    {
+        var found = _survival.Find(englishName);
+        if (found is not { } entry || !_survival.AutoUseAllowed(entry))
+            return false;
+
+        if (LostActionStatuses.IsActive(entry.StatusId, out _))
+            return false;
+
+        if (entry.IsItem)
+        {
+            if (!UseItem(entry.RowId, entry, holster, now))
+                return false;
+            _lastSurvivalUseMs = now;
+            return true;
+        }
+
+        if (!entry.IsAction)
+            return false;
+
+        var outcome = UseAction(entry.RowId, entry, holster, now, targetSelf, survival: true);
+        if (outcome == Outcome.Fired)
+        {
+            _lastSurvivalUseMs = now;
+            return true;
+        }
+        return outcome == Outcome.Loading;
+    }
+
     /// <summary>Reset the cooldown so the next engagement can open with an action.</summary>
     public void Reset()
     {
@@ -232,7 +339,7 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
 
     // ---------------------------------------------------------------- actions
 
-    private Outcome UseAction(byte row, LostActionCatalog.Entry entry, byte[] holster, long now)
+    private Outcome UseAction(byte row, LostActionCatalog.Entry entry, byte[] holster, long now, bool targetSelf = false, bool survival = false)
     {
         // ALREADY LOADED IS THE COMMON CASE once the driver has run for a window or two, and it is
         // also how a loadout the operator set by hand gets used without being disturbed. Press it
@@ -242,7 +349,10 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
             if (DutyActions.Read(slot).ActionId != entry.ActionId)
                 continue;
 
-            var press = DutyActions.Press(slot, entry.ActionId);
+            var me = Svc.Objects.LocalPlayer;
+            var press = targetSelf && me != null
+                ? DutyActions.PressAt(slot, entry.ActionId, me.GameObjectId, me.Name.TextValue)
+                : DutyActions.Press(slot, entry.ActionId);
             LastResult = press.Message;
 
             // Recharging, or otherwise refused: let a lower-priority action have the window rather
@@ -269,6 +379,8 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
         _pendingRow = row;
         _pendingActionId = entry.ActionId;
         _loadIssuedMs = now;
+        _pendingTargetSelf = targetSelf;
+        _pendingSurvival = survival;
         LastResult = $"loading {entry.Name} into duty slot {DriverSlot + 1}";
         return Outcome.Loading;
     }
@@ -299,10 +411,16 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
         }
 
         var row = _pendingRow;
-        var result = DutyActions.Press(DriverSlot, _pendingActionId);
+        var me = Svc.Objects.LocalPlayer;
+        var wasSurvival = _pendingSurvival;
+        var result = _pendingTargetSelf && me != null
+            ? DutyActions.PressAt(DriverSlot, _pendingActionId, me.GameObjectId, me.Name.TextValue)
+            : DutyActions.Press(DriverSlot, _pendingActionId);
 
         LastResult = result.Message;
         _lastUseMs = now;
+        if (wasSurvival && result.Fired)
+            _lastSurvivalUseMs = now;
         Abandon();
 
         if (!result.Fired)
@@ -318,6 +436,8 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
         _pendingRow = 0;
         _pendingActionId = 0;
         _loadIssuedMs = 0;
+        _pendingTargetSelf = false;
+        _pendingSurvival = false;
     }
 
     private static int IndexOf(byte[] holster, byte row)

@@ -58,6 +58,12 @@ public sealed class ConfigWindow : Window
             ImGui.EndTabItem();
         }
 
+        if (ImGui.BeginTabItem("生存"))
+        {
+            DrawSurvival();
+            ImGui.EndTabItem();
+        }
+
         if (ImGui.BeginTabItem(Loc.T("Movement", "移動")))
         {
             DrawMovement();
@@ -260,12 +266,70 @@ public sealed class ConfigWindow : Window
             "The game refuses registration under 10 seconds, so leave enough margin to actually get there.");
     }
 
+    private void DrawSurvival()
+    {
+        var enabled = _config.AutoSurvivalLostActions;
+        if (ImGui.Checkbox("生存優先のロストアクション自動使用", ref enabled))
+        {
+            _config.AutoSurvivalLostActions = enabled;
+            Save();
+        }
+        ImGui.TextColored(Grey,
+            "マウント中はロストアクションを一切使用しません。徒歩/戦闘中のみ、HPとロールを見て\n" +
+            "ポーションキット・リレイザー・緊急防御・回復を使用します。");
+
+        DrawRole("Tank", ref _config.TankSurvivalHealFraction, ref _config.TankSurvivalEmergencyFraction);
+        DrawRole("Healer", ref _config.HealerSurvivalHealFraction, ref _config.HealerSurvivalEmergencyFraction);
+        DrawRole("DPS", ref _config.DpsSurvivalHealFraction, ref _config.DpsSurvivalEmergencyFraction);
+
+        return;
+
+        void DrawRole(string role, ref float heal, ref float emergency)
+        {
+            var h = heal * 100f;
+            var e = emergency * 100f;
+            ImGui.SetNextItemWidth(180);
+            if (ImGui.SliderFloat($"{role} 通常回復 (%)", ref h, 20f, 95f, "%.0f%%"))
+            {
+                heal = Math.Clamp(h / 100f, 0.2f, 0.95f);
+                Save();
+            }
+            ImGui.SetNextItemWidth(180);
+            if (ImGui.SliderFloat($"{role} 緊急 (%)", ref e, 10f, 80f, "%.0f%%"))
+            {
+                emergency = Math.Clamp(e / 100f, 0.1f, heal);
+                Save();
+            }
+        }
+    }
+
     private void DrawMovement()
     {
         ImGui.TextColored(Grey,
-            "Neither Bozja nor Zadnor has a single aetheryte - there is no in-zone teleport of any\n" +
-            "kind. Mount travel is the fast travel, so leaving mounting off means jogging the map.");
+            "南方ボズヤ戦線・ザトゥノル高原のフィールド内エーテライトを利用できます。\n" +
+            "BOCCHI方式で徒歩/マウント直行と簡易テレポ経路を比較し、速い方を選択します。");
         ImGui.Separator();
+
+        var bocchi = _config.UseBocchiNavigation;
+        if (ImGui.Checkbox("BOCCHI方式の移動経路を使用する", ref bocchi))
+        {
+            _config.UseBocchiNavigation = bocchi;
+            Save();
+        }
+
+        var aethernet = _config.UseAethernetTravel;
+        if (ImGui.Checkbox("フィールド内の簡易テレポを使用する（Lifestream）", ref aethernet))
+        {
+            _config.UseAethernetTravel = aethernet;
+            Save();
+        }
+
+        var legacy = _config.LegacyMovement;
+        if (ImGui.Checkbox("非常用: 従来の直接移動を使用する", ref legacy))
+        {
+            _config.LegacyMovement = legacy;
+            Save();
+        }
 
         var mount = _config.UseMount;
         if (ImGui.Checkbox(Loc.T("Summon a mount for long travel", "長距離移動ではマウントを使用する"), ref mount))
@@ -276,15 +340,23 @@ public sealed class ConfigWindow : Window
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Uses Mount Roulette past 30y, and dismounts on arrival so you can fight.");
 
-        var fly = _config.AllowFlight;
-        if (ImGui.Checkbox("Allow flight", ref fly))
+        ImGui.TextColored(Grey, "この2エリアではマウント飛行は使用しません。常に地上経路です。");
+
+        var direct = _config.NavigationMaxDirectWalkDistance;
+        ImGui.SetNextItemWidth(200);
+        if (ImGui.SliderFloat("直接移動を優先する距離 (y)", ref direct, 20f, 200f, "%.0f"))
         {
-            _config.AllowFlight = fly;
+            _config.NavigationMaxDirectWalkDistance = direct;
             Save();
         }
-        ImGui.TextColored(Grey,
-            "The flight path is only used once actually airborne - handing vnavmesh a flight path\n" +
-            "while grounded gives it a route the character cannot follow, which stalls the run.");
+
+        var hop = _config.NavigationAethernetHopCost;
+        ImGui.SetNextItemWidth(200);
+        if (ImGui.SliderFloat("簡易テレポの時間換算コスト", ref hop, 10f, 150f, "%.0f"))
+        {
+            _config.NavigationAethernetHopCost = hop;
+            Save();
+        }
 
         var arrive = _config.ArriveRange;
         ImGui.SetNextItemWidth(200);
@@ -330,14 +402,17 @@ public sealed class ConfigWindow : Window
         if (!avoid)
             return;
 
-        var minLevel = (int)_config.DangerousEnemyMinLevel;
+        ImGui.TextColored(Grey,
+            "ボズヤ内の敵は通常Lv80のため、レベルではなく固有の強さ I～V / ★ を判定します。\n" +
+            "I～IIIは無視し、IV・V・★・判定不能だけを迂回します。");
+
+        var star = _config.DangerStarExtraClearance;
         ImGui.SetNextItemWidth(200);
-        if (ImGui.SliderInt("Only avoid level >=", ref minLevel, 0, 100))
+        if (ImGui.SliderFloat("★敵の追加安全距離 (y)", ref star, 0f, 20f, "%.0f"))
         {
-            _config.DangerousEnemyMinLevel = (byte)minLevel;
+            _config.DangerStarExtraClearance = star;
             Save();
         }
-        ImGui.TextColored(Grey, "0 avoids every hostile enemy. The list below shows what levels are really nearby.");
 
         var sight = _config.DangerSightRadius;
         ImGui.SetNextItemWidth(200);
@@ -429,7 +504,7 @@ public sealed class ConfigWindow : Window
         }
 
         foreach (var z in zones)
-            ImGui.TextUnformatted($"Lv{z.Level,-3} {z.Name}   {Movement.DistanceToPlayer(z.Position):F0}y");
+            ImGui.TextUnformatted($"[{(z.Strength == FieldEnemyStrength.Star ? "★" : z.Strength == FieldEnemyStrength.Unknown ? "?" : ((byte)z.Strength).ToString())}] {z.Name}   {Movement.DistanceToPlayer(z.Position):F0}y   icon={z.NamePlateIconId}/{z.CharacterDataIcon}");
 
         ImGui.EndChild();
     }

@@ -26,8 +26,15 @@ def forbid(path: str, needle: str, why: str) -> None:
 # JP fork visible-language invariant.
 require("Localization.cs", "public static bool Ja => true;", "visible UI is Japanese-fixed")
 
-# Flight was explicitly removed from the v1.1 field-zone design.
-forbid("Configuration.cs", "AllowFlight", "legacy flight setting must not return")
+# Q27A removed the user-facing flight option and v1.1 field travel must always be ground routing.
+# Configuration intentionally keeps a dead compatibility field so old 1.0.x JSON can deserialize
+# without losing shape during migration; the contract is that nothing in UI or Movement uses it.
+forbid("Windows/ConfigWindow.cs", "AllowFlight", "flight setting is not exposed in v1.1 UI")
+require(
+    "Automation/Movement.cs",
+    "MoveCloseTo(legTarget, legRange, false, NavClient.Travel)",
+    "field travel always requests a ground path",
+)
 
 # Mounted travel must never be dismounted by survival automation.
 require("Automation/HolsterDriver.cs", "if (Mount.IsMounted)", "mounted Lost Action guard exists")

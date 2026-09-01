@@ -47,6 +47,8 @@ public sealed class BozjaController
     private readonly CombatDirector _director;
     private readonly CombatApproach _approach;
     private readonly HolsterDriver _holster;
+    private readonly SupplyManager _supplies;
+    private readonly SupplyRecoveryDriver _supplyRecovery;
     private readonly MultiboxLink _link;
     private readonly NavmeshIpc _navmesh;
     private readonly RegionResolver _regions;
@@ -90,6 +92,7 @@ public sealed class BozjaController
         CombatDirector director,
         CombatApproach approach,
         HolsterDriver holster,
+        SupplyManager supplies,
         MultiboxLink link,
         NavmeshIpc navmesh,
         RegionResolver regions,
@@ -107,6 +110,8 @@ public sealed class BozjaController
         _director = director;
         _approach = approach;
         _holster = holster;
+        _supplies = supplies;
+        _supplyRecovery = new SupplyRecoveryDriver(movement);
         _link = link;
         _navmesh = navmesh;
         _regions = regions;
@@ -162,6 +167,7 @@ public sealed class BozjaController
         _dependencies.Reset();
         _safeStop.Reset();
         _selector.ClearRouteBlacklist();
+        _supplyRecovery.Reset();
         _deathRecovery.CancelAndRestore();
         _holster.Reset();
         ResetYieldState();
@@ -199,6 +205,7 @@ public sealed class BozjaController
         _approach.Release();
         _movement.Stop();
         _director.ReleaseControl();
+        _supplyRecovery.Reset();
         _deathRecovery.CancelAndRestore();
 
         // A sign-up outlived Stop, so a stopped box carried on driving the recruitment window.
@@ -402,8 +409,26 @@ public sealed class BozjaController
         var current = CriticalEngagements.Current(_catalog);
         if (current is { } ce && ce.IsLive)
         {
+            _supplyRecovery.Reset();
             RunEngagement(ce);
             return;
+        }
+
+        // Q54C/Q63A/Q109C: complete loss of both Potion Kit protection and a usable
+        // self-heal is the one supply state severe enough to abandon the current skirmish
+        // immediately. Registration keeps running above this block; if the lottery selects this
+        // box, SignUpRunner independently holds Commence until the same supply predicate clears.
+        var supply = _supplies.Evaluate();
+        if (supply.InventoryAvailable && supply.CriticalNoRecovery)
+        {
+            RunCriticalSupplyRecovery(supply);
+            return;
+        }
+
+        if (_supplyRecovery.Active)
+        {
+            Svc.Log.Information("[BozjaBuddyReborn] Critical survival supply recovered; returning to normal objective selection.");
+            _supplyRecovery.Reset();
         }
 
         // --- decide what to do next ----------------------------------------
@@ -442,6 +467,33 @@ public sealed class BozjaController
         _lastObjective = objective;
 
         RunTravel(objective);
+    }
+
+    private void RunCriticalSupplyRecovery(SupplyStatus supply)
+    {
+        State = ControllerState.Travelling;
+
+        // The skirmish is intentionally abandoned, not merely paused. After recovery the selector
+        // performs a fresh ranking, so we do not run back across the zone to a stale nearly-finished
+        // objective just because it was the one being fought when stock hit zero.
+        _lastObjective = SharedObjective.None;
+        _reportedArrival = false;
+        _committed = false;
+        _returning = false;
+        _arrivedAtMs = 0;
+
+        _approach.Release();
+        _director.Travel(_config.UseBossModAvoidance);
+
+        // On foot, any surviving defensive option may still save the trip. HolsterDriver has an
+        // absolute mounted guard, so this can never dismiss a travel mount or start combat.
+        _holster.TickTravelSurvival();
+
+        _supplyRecovery.Tick();
+        Status = _supplyRecovery.Status;
+
+        if (supply.Reasons.Count > 0)
+            Svc.Log.Debug($"[BozjaBuddyReborn] Critical supply recovery: {string.Join("; ", supply.Reasons)}.");
     }
 
     private void TickAutomaticCeRegistration()

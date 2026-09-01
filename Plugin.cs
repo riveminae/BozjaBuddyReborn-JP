@@ -107,7 +107,7 @@ public sealed class Plugin : IDalamudPlugin
         _partySupport = new PartySupportDriver(_config, _lostActions);
 
         _controller = new BozjaController(
-            _config, _catalog, _selector, _movement, _director, _approach, _holster, _link, _navmesh, _regions,
+            _config, _catalog, _selector, _movement, _director, _approach, _holster, _supplies, _link, _navmesh, _regions,
             _errands, _loadoutDriver, _signUps, _partySupport, _deathRecovery, _dependencies);
         _socialRequests = new SocialRequestGuard(_config, () => _controller.Running);
 

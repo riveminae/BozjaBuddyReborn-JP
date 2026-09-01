@@ -194,7 +194,7 @@ public sealed class MainWindow : Window
             // live here would just let the two contradict each other.
             ImGui.TextColored(Blue, FieldRegions.Label(locked.Territory, locked.Region));
             ImGui.SameLine();
-            ImGui.TextColored(Grey, "（RelicのFarm対象から自動設定）");
+            ImGui.TextColored(Grey, "（Relicの周回対象から自動設定）");
             return;
         }
 
@@ -246,8 +246,8 @@ public sealed class MainWindow : Window
             var right = farm.Territory == territory && farm.Region == region;
             ImGui.TextColored(right ? Green : Yellow,
                 right
-                    ? $"現在のFarm対象: {farm.Describe()}"
-                    : $"Farm対象は {farm.Describe()} です。現在地が対象外です。");
+                    ? $"現在の周回対象: {farm.Describe()}"
+                    : $"周回対象は {farm.Describe()} です。現在地が対象外です。");
         }
 
         if (!FieldState.Available)

@@ -3,6 +3,7 @@ using System.Numerics;
 using BozjaBuddyReborn.External;
 using BozjaBuddyReborn.Game;
 using BozjaBuddyReborn.Vendor.BOCCHI;
+using Dalamud.Game.ClientState.Conditions;
 using ECommons.DalamudServices;
 
 namespace BozjaBuddyReborn.Automation;
@@ -15,12 +16,13 @@ public enum FieldTravelMode : byte
     Teleporting = 2,
     WalkFromAetheryte = 3,
     FallbackDirect = 4,
+    Returning = 5,
 }
 
 /// <summary>
-/// One instruction from the high-level route planner to Movement.  Walking remains
-/// owned by the existing Movement class so its stall recovery and hostile detours are
-/// preserved; this planner only decides when a walk should be split by an aethernet hop.
+/// One instruction from the high-level route planner to Movement. Walking remains owned by the
+/// existing Movement class so its stall recovery and hostile detours are preserved; this planner
+/// decides whether a walk is split by an aethernet hop or by Return + optional aethernet.
 /// </summary>
 public readonly record struct FieldTravelDirective(
     Vector3 Destination,
@@ -30,13 +32,12 @@ public readonly record struct FieldTravelDirective(
     string Detail);
 
 /// <summary>
-/// BOCCHI-style Walk -> Aethernet -> Walk planner for Bozja and Zadnor.
+/// BOCCHI-style Direct / Walk-Teleport-Walk / Return-Teleport-Walk planner for Bozja and Zadnor.
 ///
-/// The route-cost model deliberately uses BOCCHI's yalm-equivalent constants.  v1.1's
-/// first implementation uses horizontal distance for the two walk legs rather than
-/// importing BOCCHI's entire graph/pathfinder service; the state machine and cost
-/// semantics are otherwise the same shape.  Existing BBR Movement still executes each
-/// walk leg, retaining its vnavmesh snapping, stall recovery and enemy avoidance.
+/// The candidate costs deliberately use BOCCHI's yalm-equivalent constants. The BBR adapter still
+/// uses horizontal-distance estimates for walk legs instead of importing BOCCHI's entire graph
+/// service; Movement executes every walk leg and therefore retains vnavmesh snapping, stall
+/// recovery and IV/V/★ avoidance.
 /// </summary>
 public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration config)
 {
@@ -51,6 +52,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
     private long _teleportStartedMs;
     private long _lastTeleportAttemptMs;
     private int _teleportAttempts;
+    private long _returnStartedMs;
     private bool _fallbackForGoal;
 
     private const float GoalIdentityRadius = 10f;
@@ -59,6 +61,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
     private const float TeleportArrivalRadius = 55f;
     private const long TeleportRetryDelayMs = 1_200;
     private const long TeleportTimeoutMs = 20_000;
+    private const long ReturnTimeoutMs = 25_000;
 
     public FieldTravelMode Mode => _mode;
     public bool LifestreamAvailable => _lifestream.Available;
@@ -78,6 +81,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         _teleportStartedMs = 0;
         _lastTeleportAttemptMs = 0;
         _teleportAttempts = 0;
+        _returnStartedMs = 0;
         _fallbackForGoal = false;
         RouteDescription = "直接移動";
     }
@@ -91,19 +95,86 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         if (!IsRoutingTo(finalDestination))
             Plan(me.Position, finalDestination, finalRange);
 
-        if (!_config.UseBocchiNavigation || !_config.UseAethernetTravel || !FieldState.InFieldZone)
+        if (!_config.UseBocchiNavigation || !FieldState.InFieldZone)
             return Direct(finalDestination, finalRange, FieldTravelMode.Direct, "直接移動");
 
         if (_fallbackForGoal || _departure is null || _inbound is null)
             return Direct(finalDestination, finalRange,
                 _fallbackForGoal ? FieldTravelMode.FallbackDirect : FieldTravelMode.Direct,
-                _fallbackForGoal ? "簡易テレポ失敗のため直接移動" : "直接移動");
+                _fallbackForGoal ? "高速移動失敗のため直接移動" : "直接移動");
 
         var departure = _departure.Value;
         var inbound = _inbound.Value;
 
         switch (_mode)
         {
+            case FieldTravelMode.Returning:
+            {
+                RouteDescription = inbound.IsBaseCamp
+                    ? "デジョン → 目的地へ移動"
+                    : $"デジョン → 簡易テレポ ({departure.PlaceNameId}→{inbound.PlaceNameId}) → 目的地";
+
+                // Once Return has landed, continue either directly from base camp or with the
+                // aethernet hop selected by the candidate calculator.
+                if (Movement.HorizontalDistance(me.Position, departure.Position) <= TeleportArrivalRadius)
+                {
+                    _returnStartedMs = 0;
+                    if (inbound.IsBaseCamp || inbound.CustomAetheryteId == departure.CustomAetheryteId)
+                    {
+                        _mode = FieldTravelMode.WalkFromAetheryte;
+                        RouteDescription = "デジョン完了 → 目的地へ移動";
+                        return new FieldTravelDirective(finalDestination, finalRange, false, _mode, RouteDescription);
+                    }
+
+                    _mode = FieldTravelMode.Teleporting;
+                    _teleportStartedMs = Environment.TickCount64;
+                    _lastTeleportAttemptMs = 0;
+                    _teleportAttempts = 0;
+                    goto case FieldTravelMode.Teleporting;
+                }
+
+                // Return cannot be cast while fighting. Do not stand waiting to die: abandon this
+                // optimization and let the proven direct travel keep running/leashing the pull.
+                if (Svc.Condition[ConditionFlag.InCombat])
+                {
+                    FallBack("Return route became unavailable because combat started");
+                    return Direct(finalDestination, finalRange, FieldTravelMode.FallbackDirect, "戦闘中のためデジョンを中止 → 直接移動");
+                }
+
+                var now = Environment.TickCount64;
+                if (_returnStartedMs != 0)
+                {
+                    if (now - _returnStartedMs > ReturnTimeoutMs)
+                    {
+                        FallBack("Return did not reach base camp before timeout");
+                        return Direct(finalDestination, finalRange, FieldTravelMode.FallbackDirect, "デジョンがタイムアウト → 直接移動");
+                    }
+
+                    return new FieldTravelDirective(Vector3.Zero, 0, true, _mode, RouteDescription);
+                }
+
+                if (!GeneralActions.ReturnReady())
+                {
+                    FallBack("Return selected by planner but general action is not ready");
+                    return Direct(finalDestination, finalRange, FieldTravelMode.FallbackDirect, "デジョン使用不可 → 直接移動");
+                }
+
+                // Intentional dismount: Return is the selected route, unlike survival automation
+                // which must never cause a travel dismount.
+                if (!Mount.EnsureDismounted())
+                    return new FieldTravelDirective(Vector3.Zero, 0, true, _mode, "デジョンのため降車中");
+
+                if (!GeneralActions.CastReturn())
+                {
+                    FallBack("Return general action was refused");
+                    return Direct(finalDestination, finalRange, FieldTravelMode.FallbackDirect, "デジョン失敗 → 直接移動");
+                }
+
+                _returnStartedMs = now;
+                Svc.Log.Information("[BozjaBuddyReborn] BOCCHI-style Return traversal started.");
+                return new FieldTravelDirective(Vector3.Zero, 0, true, _mode, RouteDescription);
+            }
+
             case FieldTravelMode.WalkToAetheryte:
             {
                 var distance = Movement.HorizontalDistance(me.Position, departure.Position);
@@ -132,16 +203,12 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             {
                 RouteDescription = $"簡易テレポ中 ({departure.PlaceNameId}→{inbound.PlaceNameId})";
 
-                // Arrival is established by either Lifestream's active custom node or proximity.
-                // The latter is important because the active-node gate can briefly read zero while
-                // the destination area's UI is settling.
                 if (_lifestream.ActiveCustomAetheryte == inbound.CustomAetheryteId
                     || Movement.HorizontalDistance(me.Position, inbound.Position) <= TeleportArrivalRadius)
                 {
                     _mode = FieldTravelMode.WalkFromAetheryte;
                     RouteDescription = "簡易テレポ完了 → 目的地へ移動";
-                    return new FieldTravelDirective(
-                        finalDestination, finalRange, false, _mode, RouteDescription);
+                    return new FieldTravelDirective(finalDestination, finalRange, false, _mode, RouteDescription);
                 }
 
                 var now = Environment.TickCount64;
@@ -163,15 +230,12 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                 if (_lastTeleportAttemptMs != 0 && now - _lastTeleportAttemptMs < TeleportRetryDelayMs)
                     return new FieldTravelDirective(Vector3.Zero, 0, true, _mode, RouteDescription);
 
-                // One initial call plus one retry, then fail open to the proven legacy walk.
                 if (_teleportAttempts >= 2)
                 {
                     FallBack("Lifestream rejected aethernet teleport twice");
                     return Direct(finalDestination, finalRange, FieldTravelMode.FallbackDirect, "簡易テレポ失敗 → 直接移動");
                 }
 
-                // Teleport interaction must not race a mounted state.  Unlike survival actions,
-                // this dismount is intentional: the next operation is the aethernet hop itself.
                 if (!Mount.EnsureDismounted())
                     return new FieldTravelDirective(Vector3.Zero, 0, true, _mode, "簡易テレポのため降車中");
 
@@ -194,7 +258,6 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             }
 
             case FieldTravelMode.WalkFromAetheryte:
-                RouteDescription = "簡易テレポ完了 → 目的地へ移動";
                 return new FieldTravelDirective(finalDestination, finalRange, false, _mode, RouteDescription);
 
             default:
@@ -212,6 +275,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         _teleportStartedMs = 0;
         _lastTeleportAttemptMs = 0;
         _teleportAttempts = 0;
+        _returnStartedMs = 0;
 
         var territory = Svc.ClientState.TerritoryType;
         var nodes = FieldAethernet.ForTerritory(territory);
@@ -223,9 +287,11 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         var hopCost = _config.NavigationAethernetHopCost > 0
             ? _config.NavigationAethernetHopCost
             : NavigationConstants.AethernetHopCost;
+        var returnCost = _config.NavigationReturnCost > 0
+            ? _config.NavigationReturnCost
+            : NavigationConstants.ReturnCost;
 
-        if (!_config.UseBocchiNavigation || !_config.UseAethernetTravel || !_lifestream.Available
-            || nodes.Count < 2 || direct <= maxDirect)
+        if (!_config.UseBocchiNavigation || nodes.Count == 0 || direct <= maxDirect)
         {
             _mode = FieldTravelMode.Direct;
             RouteDescription = "直接移動";
@@ -233,29 +299,73 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         }
 
         var best = direct;
+        var bestMode = FieldTravelMode.Direct;
         FieldAethernet.Node? bestDeparture = null;
         FieldAethernet.Node? bestInbound = null;
 
-        foreach (var departure in nodes)
+        // Walk -> aethernet -> walk candidate. This is offered only when Lifestream is currently
+        // answering; optional-dependency failure must never strand the route planner.
+        if (_config.UseAethernetTravel && _lifestream.Available && nodes.Count >= 2)
         {
-            var walkToDeparture = Movement.HorizontalDistance(start, departure.Position);
-            foreach (var inbound in nodes)
+            foreach (var departure in nodes)
             {
-                if (departure.CustomAetheryteId == inbound.CustomAetheryteId)
-                    continue;
+                var walkToDeparture = Movement.HorizontalDistance(start, departure.Position);
+                foreach (var inbound in nodes)
+                {
+                    if (departure.CustomAetheryteId == inbound.CustomAetheryteId)
+                        continue;
 
-                var walkFromInbound = Movement.HorizontalDistance(inbound.Position, finalDestination);
-                var cost = walkToDeparture + hopCost + walkFromInbound;
-                if (cost >= best)
-                    continue;
+                    var walkFromInbound = Movement.HorizontalDistance(inbound.Position, finalDestination);
+                    var cost = walkToDeparture + hopCost + walkFromInbound;
+                    if (cost >= best)
+                        continue;
 
-                best = cost;
-                bestDeparture = departure;
-                bestInbound = inbound;
+                    best = cost;
+                    bestMode = FieldTravelMode.WalkToAetheryte;
+                    bestDeparture = departure;
+                    bestInbound = inbound;
+                }
             }
         }
 
-        if (bestDeparture is null || bestInbound is null)
+        // Return -> base camp -> optional aethernet -> walk, matching BOCCHI's candidate shape.
+        // Do not offer it while already in camp, in combat, or while Return is on cooldown.
+        var baseCamp = FieldAethernet.BaseCamp(territory);
+        if (_config.UseReturnRouting
+            && baseCamp is { } camp
+            && Movement.HorizontalDistance(start, camp.Position) > NavigationConstants.CampRadius
+            && !Svc.Condition[ConditionFlag.InCombat]
+            && GeneralActions.ReturnReady())
+        {
+            var baseWalk = Movement.HorizontalDistance(camp.Position, finalDestination);
+            var cost = returnCost + baseWalk;
+            if (cost < best)
+            {
+                best = cost;
+                bestMode = FieldTravelMode.Returning;
+                bestDeparture = camp;
+                bestInbound = camp;
+            }
+
+            if (_config.UseAethernetTravel && _lifestream.Available)
+            {
+                foreach (var inbound in nodes)
+                {
+                    if (inbound.IsBaseCamp)
+                        continue;
+                    var candidate = returnCost + hopCost
+                                    + Movement.HorizontalDistance(inbound.Position, finalDestination);
+                    if (candidate >= best)
+                        continue;
+                    best = candidate;
+                    bestMode = FieldTravelMode.Returning;
+                    bestDeparture = camp;
+                    bestInbound = inbound;
+                }
+            }
+        }
+
+        if (bestDeparture is null || bestInbound is null || bestMode == FieldTravelMode.Direct)
         {
             _mode = FieldTravelMode.Direct;
             RouteDescription = "直接移動";
@@ -264,12 +374,16 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
 
         _departure = bestDeparture;
         _inbound = bestInbound;
-        _mode = FieldTravelMode.WalkToAetheryte;
-        RouteDescription = $"簡易テレポ経路 ({bestDeparture.Value.PlaceNameId}→{bestInbound.Value.PlaceNameId})";
+        _mode = bestMode;
+        RouteDescription = bestMode == FieldTravelMode.Returning
+            ? bestInbound.Value.IsBaseCamp
+                ? "デジョン経路"
+                : $"デジョン → 簡易テレポ経路 ({bestInbound.Value.PlaceNameId})"
+            : $"簡易テレポ経路 ({bestDeparture.Value.PlaceNameId}→{bestInbound.Value.PlaceNameId})";
 
         Svc.Log.Information(
-            $"[BozjaBuddyReborn] BOCCHI-style route selected: direct={direct:F0}y, planned={best:F0}y, " +
-            $"departure={bestDeparture.Value.PlaceNameId}, inbound={bestInbound.Value.PlaceNameId}.");
+            $"[BozjaBuddyReborn] BOCCHI-style route selected: mode={bestMode}, direct={direct:F0}y, " +
+            $"planned={best:F0}y, departure={bestDeparture.Value.PlaceNameId}, inbound={bestInbound.Value.PlaceNameId}.");
     }
 
     private void FallBack(string reason)

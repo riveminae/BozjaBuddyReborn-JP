@@ -16,6 +16,25 @@ def patch(path: str, old: str, new: str) -> None:
     print(f"{path}: patched")
 
 
+def patch_after_any(path: str, anchors: list[str], insertion: str) -> None:
+    """Insert once after the first matching constructor anchor.
+
+    Packet scripts are intentionally replayable in CI. Other packets may add constructor
+    dependencies before this one is applied, so anchoring to one exact tail is too brittle.
+    """
+    p = ROOT / path
+    text = p.read_text(encoding="utf-8-sig")
+    if insertion in text:
+        print(f"{path}: already applied")
+        return
+    for anchor in anchors:
+        if anchor in text:
+            p.write_text(text.replace(anchor, anchor + insertion, 1), encoding="utf-8")
+            print(f"{path}: patched")
+            return
+    raise RuntimeError(f"no constructor anchor found in {path}")
+
+
 patch(
     "Configuration.cs",
     """public enum TravelAggroResponse : byte\n{\n""",
@@ -37,10 +56,14 @@ patch(
     """    private readonly SignUpRunner _signUps;\n    private readonly PartySupportDriver _partySupport;\n""",
     """    private readonly SignUpRunner _signUps;\n    private readonly PartySupportDriver _partySupport;\n    private readonly RelicFarmCoordinator _relicFarm;\n""",
 )
-patch(
+patch_after_any(
     "Automation/BozjaController.cs",
-    """        _signUps = signUps;\n        _partySupport = partySupport;\n    }\n""",
-    """        _signUps = signUps;\n        _partySupport = partySupport;\n        _relicFarm = new RelicFarmCoordinator(config, new RelicTracker());\n    }\n""",
+    [
+        "        _dependencies = dependencies;\n",
+        "        _deathRecovery = deathRecovery;\n",
+        "        _partySupport = partySupport;\n",
+    ],
+    "        _relicFarm = new RelicFarmCoordinator(config, new RelicTracker());\n",
 )
 patch(
     "Automation/BozjaController.cs",

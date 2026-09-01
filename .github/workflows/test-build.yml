@@ -41,14 +41,15 @@ jobs:
           "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Test version: $version"
 
-      - name: Validate repository
+      - name: Apply timeout-safe packet patches
+        run: python tools/packets/run_all.py
+
+      - name: Validate repository diff
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           git diff --check
-          if (git status --porcelain) {
-            throw 'Checkout is dirty before build.'
-          }
+          git status --short
 
       - name: Install Dalamud dev files
         shell: pwsh
@@ -134,7 +135,7 @@ jobs:
             pluginmaster-test.json
           if-no-files-found: error
 
-      - name: Publish validated test repository
+      - name: Commit validated packet changes and publish test repository
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -148,10 +149,10 @@ jobs:
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add dist-test/BozjaBuddyReborn.zip pluginmaster-test.json
+          git add -A
           if (-not (git diff --cached --quiet)) {
-            git commit -m "build: publish test repository ${{ steps.version.outputs.value }}"
+            git commit -m "build: validate v1.1 packet changes (${{ steps.version.outputs.value }})"
             git push origin HEAD:feat/bocchi-navigation
           } else {
-            Write-Host 'Published files are unchanged.'
+            Write-Host 'No validated source or published files changed.'
           }

@@ -33,11 +33,11 @@ patch(
     """            _config, _catalog, _selector, _movement, _director, _approach, _holster, _link, _navmesh, _regions,\n            _errands, _loadoutDriver, _signUps, _partySupport, _deathRecovery);\n""",
 )
 
-# Controller field/constructor.
+# Controller field/constructor. P4-03 has already inserted _relicFarm after _partySupport.
 patch(
     "Automation/BozjaController.cs",
-    """    private readonly SignUpRunner _signUps;\n    private readonly PartySupportDriver _partySupport;\n\n""",
-    """    private readonly SignUpRunner _signUps;\n    private readonly PartySupportDriver _partySupport;\n    private readonly DeathRecoveryDriver _deathRecovery;\n\n""",
+    """    private readonly SignUpRunner _signUps;\n    private readonly PartySupportDriver _partySupport;\n    private readonly RelicFarmCoordinator _relicFarm;\n""",
+    """    private readonly SignUpRunner _signUps;\n    private readonly PartySupportDriver _partySupport;\n    private readonly DeathRecoveryDriver _deathRecovery;\n    private readonly RelicFarmCoordinator _relicFarm;\n""",
 )
 patch(
     "Automation/BozjaController.cs",
@@ -46,8 +46,8 @@ patch(
 )
 patch(
     "Automation/BozjaController.cs",
-    """        _signUps = signUps;\n        _partySupport = partySupport;\n    }\n""",
-    """        _signUps = signUps;\n        _partySupport = partySupport;\n        _deathRecovery = deathRecovery;\n    }\n""",
+    """        _signUps = signUps;\n        _partySupport = partySupport;\n        _relicFarm = new RelicFarmCoordinator(config, new RelicTracker());\n    }\n""",
+    """        _signUps = signUps;\n        _partySupport = partySupport;\n        _deathRecovery = deathRecovery;\n        _relicFarm = new RelicFarmCoordinator(config, new RelicTracker());\n    }\n""",
 )
 patch(
     "Automation/BozjaController.cs",

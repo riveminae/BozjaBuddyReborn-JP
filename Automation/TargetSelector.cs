@@ -28,6 +28,44 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
     private readonly RegionResolver _regions = regions;
     private readonly Movement _movement = movement;
 
+    // Route failures are scoped to a single live skirmish spawn. They are intentionally not
+    // persisted in Configuration: once the FATE disappears (or reaches completion), the same
+    // FateId is eligible again on its next spawn. This prevents one bad navmesh route from
+    // turning into an infinite unattended retry loop without permanently suppressing content.
+    private readonly HashSet<uint> _routeBlacklistedFates = [];
+
+    public int RouteBlacklistedFateCount => _routeBlacklistedFates.Count;
+
+    public void BlacklistFateForCurrentSpawn(uint fateId)
+    {
+        if (fateId != 0)
+            _routeBlacklistedFates.Add(fateId);
+    }
+
+    public void ClearRouteBlacklist() => _routeBlacklistedFates.Clear();
+
+    private void PruneRouteBlacklist()
+    {
+        if (_routeBlacklistedFates.Count == 0)
+            return;
+
+        var live = new HashSet<uint>();
+        try
+        {
+            foreach (var fate in Svc.Fates)
+                if (fate != null && fate.Progress < 100)
+                    live.Add(fate.FateId);
+        }
+        catch
+        {
+            // FATE table temporarily unavailable: keep the blacklist rather than accidentally
+            // re-enabling the exact spawn that just wedged us. The next readable tick prunes it.
+            return;
+        }
+
+        _routeBlacklistedFates.RemoveWhere(id => !live.Contains(id));
+    }
+
     /// <summary>
     /// The material being farmed, or null. Resolved once per selection pass so the region and
     /// activity filters below share one answer.
@@ -81,6 +119,10 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
     public bool StillPermitted(ObjectiveKind kind, uint id, Vector3 position)
     {
         if (kind == ObjectiveKind.None)
+            return false;
+
+        PruneRouteBlacklist();
+        if (kind == ObjectiveKind.Fate && _routeBlacklistedFates.Contains(id))
             return false;
 
         var territory = Svc.ClientState.TerritoryType;
@@ -325,6 +367,8 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
     /// </summary>
     private Choice SelectFate(bool deterministic)
     {
+        PruneRouteBlacklist();
+
         uint bestId = 0;
         var bestName = string.Empty;
         var bestPosition = Vector3.Zero;
@@ -342,6 +386,9 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
                     continue;
 
                 if (_config.BlockedEngagements.Contains(fate.FateId))
+                    continue;
+
+                if (_routeBlacklistedFates.Contains(fate.FateId))
                     continue;
 
                 if (!PassesFarmFilter(ObjectiveKind.Fate, fate.FateId, fate.Position, DropActivity.Skirmish))

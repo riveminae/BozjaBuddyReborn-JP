@@ -129,6 +129,7 @@ public sealed class BozjaController
     public string TravelRoute => _movement.RouteDescription;
     public FieldTravelMode TravelMode => _movement.TravelMode;
     public bool LifestreamAvailable => _movement.LifestreamAvailable;
+    public int RouteBlacklistCount => _selector.RouteBlacklistedFateCount;
 
     /// <summary>Live engagement snapshot from the last tick, for the UI.</summary>
     public IReadOnlyList<CeSnapshot> Engagements { get; private set; } = [];
@@ -160,6 +161,7 @@ public sealed class BozjaController
         _director.Resync();
         _dependencies.Reset();
         _safeStop.Reset();
+        _selector.ClearRouteBlacklist();
         _deathRecovery.CancelAndRestore();
         _holster.Reset();
         ResetYieldState();
@@ -985,9 +987,40 @@ public sealed class BozjaController
             // this used to present as a silent hang while the repath counter climbed.
             if (_movement.Stuck)
             {
-                Status = $"Stuck en route to {Describe(objective)} ({distance:F0}y) - no progress " +
-                         $"for {_movement.SecondsWithoutProgress:F0}s across {_movement.RepathCount} " +
-                         "re-paths. vnavmesh may not be able to reach it from here.";
+                var failedRepaths = _movement.RepathCount;
+                var failedSeconds = _movement.SecondsWithoutProgress;
+
+                if (objective.Kind == ObjectiveKind.Fate)
+                {
+                    _selector.BlacklistFateForCurrentSpawn(objective.Id);
+                    Svc.Log.Warning(
+                        $"[BozjaBuddyReborn] Route to skirmish FateId {objective.Id} remained stuck after " +
+                        $"{failedRepaths} repaths / {failedSeconds:F0}s without progress; blacklisting this live spawn.");
+                    DiagnosticsRecorder.Warning(
+                        $"スカーミッシュ #{objective.Id} への経路を確立できなかったため、この出現中は除外します。",
+                        ControllerState.Travelling);
+                    Status = $"スカーミッシュ #{objective.Id} へ到達できないため、この出現中は除外して次の対象を探します。";
+                }
+                else
+                {
+                    Svc.Log.Warning(
+                        $"[BozjaBuddyReborn] Route to objective {objective.Kind} #{objective.Id} remained stuck after " +
+                        $"{failedRepaths} repaths / {failedSeconds:F0}s without progress; abandoning the objective.");
+                    DiagnosticsRecorder.Warning(
+                        "現在の目的地へ到達できないため、対象を解除して再選択します。",
+                        ControllerState.Travelling);
+                    Status = "現在の目的地へ到達できないため、対象を解除して再選択します。";
+                }
+
+                _movement.Stop();
+                _approach.Release();
+                _director.Travel(_config.UseBossModAvoidance);
+                _lastObjective = SharedObjective.None;
+                _committed = false;
+                _returning = false;
+                _reportedArrival = false;
+                _arrivedAtMs = 0;
+                _arrivalNote = null;
                 return;
             }
 

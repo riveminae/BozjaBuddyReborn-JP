@@ -602,6 +602,7 @@ public sealed class MainWindow : Window
         sb.AppendLine($"status={_controller.Status}");
         sb.AppendLine($"routeMode={_controller.TravelMode}");
         sb.AppendLine($"route={_controller.TravelRoute}");
+        sb.AppendLine($"routeSpawnBlacklist={_controller.RouteBlacklistCount}");
         sb.AppendLine($"vnavmesh={_navmesh.Available}");
         sb.AppendLine($"lifestream={_controller.LifestreamAvailable}");
         sb.AppendLine($"rotationSolver={_director.RotationAvailable}");

@@ -6,7 +6,7 @@ P = ROOT / "Automation/SignUpRunner.cs"
 text = P.read_text(encoding="utf-8-sig")
 
 SAFE_MARKER = "using var eventData = EventData.ForNormalTarget(ownerNode, addon);"
-if SAFE_MARKER in text and "if (ce.IsJoinable)" in text and "static void Walk(AtkUldManager* mgr" in text:
+if SAFE_MARKER in text and "if (!ce.IsJoinable)" in text and "static void Walk(AtkUldManager* mgr" in text:
     print("Automation/SignUpRunner.cs: API15-safe recruitment handling already applied")
     raise SystemExit(0)
 
@@ -89,13 +89,18 @@ text = text[:start] + safe_click + text[end:]
 
 # Replace CollectButtons with the recursive API15-safe component walk. The simplified rewrite used
 # null-conditional syntax on a native pointer and only inspected top-level nodes, missing row
-# buttons living in nested component managers.
+# buttons living in nested component managers. Accept both the historical static shape and the
+# simplified instance shape so this repair packet composes with either source state.
 start = text.find("    private static unsafe List<LabelledButton> CollectButtons(AtkUnitBase* addon)")
+if start < 0:
+    start = text.find("    private unsafe List<LabelledButton> CollectButtons(AtkUnitBase* addon)")
+if start < 0:
+    raise RuntimeError("SignUpRunner CollectButtons start not found")
 end = text.find("    private static IReadOnlyList<string> Describe", start)
 if end < 0:
     end = text.find("    private static List<string> Describe", start)
-if start < 0 or end < 0:
-    raise RuntimeError("SignUpRunner CollectButtons method bounds not found")
+if end < 0:
+    raise RuntimeError("SignUpRunner CollectButtons end not found")
 
 safe_collect = r'''    private static unsafe List<LabelledButton> CollectButtons(AtkUnitBase* addon)
     {
@@ -207,9 +212,10 @@ new_any = r'''    private static bool AnyRegistering() => FirstRegisteringEventI
         catch { return 0; }
     }
 '''
-if old_any not in text:
+if old_any in text:
+    text = text.replace(old_any, new_any, 1)
+elif new_any not in text:
     raise RuntimeError("SignUpRunner registration helper anchor not found")
-text = text.replace(old_any, new_any, 1)
 
 P.write_text(text, encoding="utf-8")
 print("Automation/SignUpRunner.cs: restored API15-safe recruitment handling")

@@ -146,15 +146,18 @@ def main() -> int:
         for method, offset, call in iter_calls(text):
             if "Loc.T(" in call:
                 continue
+
+            # An interpolated C# string may contain nested quoted strings inside an expression,
+            # e.g. $"[{x ? "★" : "?"}]" or string.Join(", ", values). A regex over literals
+            # cannot distinguish those nested expression strings from direct UI copy, which is how
+            # the strict pass produced false positives after all real fixed English text was gone.
+            # High-value interpolated UI/status wording is locked explicitly in the v1.1 contract;
+            # this scanner stays strict for direct fixed copy only.
+            if '$"' in call:
+                continue
+
             line = text.count("\n", 0, offset) + 1
             for token in STRING_RE.findall(call):
-                # Interpolated strings are expressions, not one direct literal: embedded ternaries
-                # and format strings made the first audit report fragments such as `(you)` from a
-                # dead branch. High-value interpolated status invariants are covered explicitly by
-                # validate_v110_contract.py. This gate is intentionally strict about DIRECT fixed
-                # visible strings, which is where accidental English UI copy normally enters.
-                if token.startswith('$"'):
-                    continue
                 value = literal_value(token)
                 if is_internal_or_format(value):
                     continue

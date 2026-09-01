@@ -16,6 +16,34 @@ def patch(path: str, old: str, new: str) -> None:
     print(f"{path}: patched")
 
 
+def ensure_relic_config_fields() -> None:
+    """Add auto-continue settings without depending on the farm-field comment/layout.
+
+    P12-02 later turns FarmMaterialItemId into a character-state compatibility mirror and inserts
+    CharacterFarmMaterialItemIds between it and these fields. CI replays every packet against the
+    final branch, so the original exact block is intentionally no longer a valid idempotence test.
+    """
+    p = ROOT / "Configuration.cs"
+    text = p.read_text(encoding="utf-8-sig")
+    if "public bool RelicAutoContinue = true;" in text and "public RelicFarmStopMode RelicFarmStopMode" in text:
+        print("Configuration.cs: relic auto-continue fields already applied")
+        return
+
+    anchor = "    public uint FarmMaterialItemId;\n"
+    if anchor not in text:
+        raise RuntimeError("FarmMaterialItemId anchor missing in Configuration.cs")
+    insertion = """
+
+    /// <summary>After an explicitly-selected material completes, continue to the next shortage in this territory.</summary>
+    public bool RelicAutoContinue = true;
+
+    /// <summary>Default is unattended/unlimited; optional stops can end at the selected material or current stage.</summary>
+    public RelicFarmStopMode RelicFarmStopMode = RelicFarmStopMode.Unlimited;
+"""
+    p.write_text(text.replace(anchor, anchor + insertion, 1), encoding="utf-8")
+    print("Configuration.cs: relic auto-continue fields patched")
+
+
 def patch_after_any(path: str, anchors: list[str], insertion: str) -> None:
     """Insert once after the first matching constructor anchor.
 
@@ -40,11 +68,7 @@ patch(
     """public enum TravelAggroResponse : byte\n{\n""",
     """public enum RelicFarmStopMode : byte\n{\n    Unlimited = 0,\n    SelectedMaterialComplete = 1,\n    CurrentStageComplete = 2,\n}\n\npublic enum TravelAggroResponse : byte\n{\n""",
 )
-patch(
-    "Configuration.cs",
-    """    /// <summary>Item id of the relic material to farm, or 0 for \"anything\".</summary>\n    public uint FarmMaterialItemId;\n\n""",
-    """    /// <summary>Item id of the relic material to farm, or 0 for \"anything\".</summary>\n    public uint FarmMaterialItemId;\n\n    /// <summary>After an explicitly-selected material completes, continue to the next shortage in this territory.</summary>\n    public bool RelicAutoContinue = true;\n\n    /// <summary>Default is unattended/unlimited; optional stops can end at the selected material or current stage.</summary>\n    public RelicFarmStopMode RelicFarmStopMode = RelicFarmStopMode.Unlimited;\n\n""",
-)
+ensure_relic_config_fields()
 
 patch(
     "Automation/BozjaController.cs",

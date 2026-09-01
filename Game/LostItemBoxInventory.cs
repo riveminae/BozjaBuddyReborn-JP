@@ -18,8 +18,8 @@ public readonly record struct LostItemBoxSnapshot(
 /// <summary>
 /// Read-only view of the Lost Finds Cache and Lost Holster server-backed state.
 ///
-/// AgentMycItemBox exposes counts but no supported transfer member function.  This class therefore
-/// never writes the agent or its ItemBoxData.  Cache/Holster transfer is implemented separately
+/// AgentMycItemBox exposes counts but no supported transfer member function. This class therefore
+/// never writes the agent or its ItemBoxData. Cache/Holster transfer is implemented separately
 /// once the game's real UI callback has been established; keeping reads separate makes it
 /// impossible for a supply calculation to accidentally become a direct memory edit.
 /// </summary>
@@ -35,13 +35,22 @@ public sealed unsafe class LostItemBoxInventory(LostActionCatalog catalog)
         try
         {
             var framework = Framework.Instance();
-            var ui = framework?.GetUIModule();
-            var agents = ui?.GetAgentModule();
-            var agent = (AgentMycItemBox*)agents?.GetAgentByInternalId(AgentId.MycItemBox);
-            var data = agent?.ItemBoxData;
-            if (data == null)
+            if (framework == null)
                 return new LostItemBoxSnapshot(cache, holster, 0, false);
 
+            var ui = framework->GetUIModule();
+            if (ui == null)
+                return new LostItemBoxSnapshot(cache, holster, 0, false);
+
+            var agents = ui->GetAgentModule();
+            if (agents == null)
+                return new LostItemBoxSnapshot(cache, holster, 0, false);
+
+            var agent = (AgentMycItemBox*)agents->GetAgentByInternalId(AgentId.MycItemBox);
+            if (agent == null || agent->ItemBoxData == null)
+                return new LostItemBoxSnapshot(cache, holster, 0, false);
+
+            var data = agent->ItemBoxData;
             var actionToRow = BuildActionToRow();
 
             foreach (var category in data->ItemCaches)

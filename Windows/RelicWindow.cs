@@ -27,7 +27,7 @@ public sealed class RelicWindow : Window
     private bool _showAllStages;
 
     public RelicWindow(RelicTracker tracker, Configuration config)
-        : base("Resistance Relic###BozjaBuddyRebornRelic")
+        : base("レジスタンス・ウェポン###BozjaBuddyRebornRelic")
     {
         _tracker = tracker;
         _config = config;
@@ -45,7 +45,7 @@ public sealed class RelicWindow : Window
 
         ImGui.Checkbox(Loc.T("Show every stage", "全段階を表示"), ref _showAllStages);
         ImGui.SameLine();
-        ImGui.TextColored(Grey, "otherwise only the stage you are on plus what is still outstanding");
+        ImGui.TextColored(Grey, "OFFの場合は現在段階と未完了素材だけを表示します");
         ImGui.Separator();
 
         if (_showAllStages)
@@ -60,9 +60,9 @@ public sealed class RelicWindow : Window
         var zadnor = RelicTracker.ZadnorUnlocked;
 
         ImGui.TextColored(bozja ? Green : Yellow,
-            bozja ? "Bozjan Southern Front unlocked" : "Bozjan Southern Front LOCKED (Hail to the Queen)");
+            bozja ? "南方ボズヤ戦線: 解放済み" : "南方ボズヤ戦線: 未解放（荒鷲の巣作戦）");
         ImGui.TextColored(zadnor ? Green : Yellow,
-            zadnor ? "Zadnor unlocked" : "Zadnor LOCKED (A New Playing Field)");
+            zadnor ? "ザトゥノル高原: 解放済み" : "ザトゥノル高原: 未解放");
     }
 
     private void DrawCurrent()
@@ -70,20 +70,20 @@ public sealed class RelicWindow : Window
         var current = _tracker.CurrentStage();
         if (current is not { } stage)
         {
-            ImGui.TextColored(Green, "Every tracked stage is complete.");
+            ImGui.TextColored(Green, "追跡対象の全段階が完了しています。");
             return;
         }
 
         DrawStage(stage, expanded: true);
 
         ImGui.Separator();
-        ImGui.TextColored(Blue, "Still outstanding across all stages");
-        ImGui.TextColored(Grey, "The Bozja grind feeds several stages at once, so this is the real shopping list.");
+        ImGui.TextColored(Blue, "全段階の未完了素材");
+        ImGui.TextColored(Grey, "複数段階で必要になる素材をまとめて確認できます。");
 
         var outstanding = _tracker.OutstandingMaterials();
         if (outstanding.Count == 0)
         {
-            ImGui.TextColored(Green, "Nothing outstanding.");
+            ImGui.TextColored(Green, "不足素材はありません。");
             return;
         }
 
@@ -117,7 +117,7 @@ public sealed class RelicWindow : Window
                 var active = _config.FarmMaterialItemId == m.ItemId;
                 if (active)
                 {
-                    if (ImGui.Button($"Stop##farm{m.ItemId}"))
+                    if (ImGui.Button($"停止##farm{m.ItemId}"))
                     {
                         _config.FarmMaterialItemId = 0;
                         ConfigSaver.Save(_config);
@@ -131,14 +131,14 @@ public sealed class RelicWindow : Window
 
                 if (ImGui.IsItemHovered())
                     ImGui.SetTooltip(
-                        $"Restrict the runner to {d.Describe()}.\n" +
-                        "Objectives elsewhere in the zone will be skipped.");
+                        $"周回対象を {d.Describe()} に限定します。\n" +
+                        "対象外のイベントはスキップします。");
             }
             else
             {
                 ImGui.TextColored(Grey, "-");
                 if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("Not farmed in the field zones - this plugin cannot route to it.");
+                    ImGui.SetTooltip("フィールド内で取得する素材ではないため、このプラグインでは自動周回できません。");
             }
 
             ImGui.TableNextColumn();
@@ -151,9 +151,9 @@ public sealed class RelicWindow : Window
         if (_config.FarmMaterialItemId != 0 && ZoneDrops.For(_config.FarmMaterialItemId) is { } active2)
         {
             ImGui.Separator();
-            ImGui.TextColored(Blue, $"Farming: {active2.Describe()}");
+            ImGui.TextColored(Blue, $"Farm中: {active2.Describe()}");
             ImGui.SameLine();
-            if (ImGui.SmallButton("Clear##farmclear"))
+            if (ImGui.SmallButton("解除##farmclear"))
             {
                 _config.FarmMaterialItemId = 0;
                 ConfigSaver.Save(_config);
@@ -173,14 +173,14 @@ public sealed class RelicWindow : Window
 
         var statusColour = p.QuestComplete ? Green : p.QuestAccepted ? Yellow : Grey;
         var statusText = p.QuestComplete
-            ? (stage.OneTime ? "done" : "tier unlocked")
-            : p.QuestAccepted ? $"in progress (step {p.QuestSequence})" : "not started";
+            ? (stage.OneTime ? "完了" : "段階解放済み")
+            : p.QuestAccepted ? $"進行中（step {p.QuestSequence}）" : "未開始";
 
         var header = $"{stage.Order}. {stage.Name}";
         if (stage.ItemLevel.Length > 0)
             header += $"  (i{stage.ItemLevel})";
         if (stage.OneTime)
-            header += "  [one-time]";
+            header += "  [一度のみ]";
 
         ImGui.SetNextItemOpen(expanded, ImGuiCond.FirstUseEver);
         if (!ImGui.CollapsingHeader($"{header}###stage{stage.Order}"))
@@ -223,7 +223,7 @@ public sealed class RelicWindow : Window
             }
 
             ImGui.TextColored(p.MaterialsReady ? Green : Grey,
-                p.MaterialsReady ? "Materials ready - go turn it in." : "Materials still short.");
+                p.MaterialsReady ? "必要素材が揃っています。次の工程へ進めます。" : "必要素材が不足しています。");
         }
 
         ImGui.Spacing();

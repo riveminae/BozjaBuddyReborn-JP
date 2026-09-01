@@ -162,17 +162,17 @@ public sealed class MainWindow : Window
         if (!task.Active && _config.PartySupportActions.Count == 0)
             return;
 
-        if (ImGui.Button(task.Active ? "Stop party support" : "Start party support", new Vector2(170, 0)))
+        if (ImGui.Button(task.Active ? "パーティ支援を停止" : "パーティ支援を開始", new Vector2(170, 0)))
             task.Toggle();
 
         ImGui.SameLine();
         ImGui.TextColored(task.Active ? Green : Grey,
-            task.Status.Length > 0 ? task.Status : "Party support is idle.");
+            task.Status.Length > 0 ? task.Status : "パーティ支援は待機中です。");
 
         if (task.Active && task.Applied > 0)
         {
             ImGui.SameLine();
-            ImGui.TextColored(Grey, $"({task.Applied} cast)");
+            ImGui.TextColored(Grey, $"（{task.Applied}回使用）");
         }
     }
 
@@ -218,9 +218,9 @@ public sealed class MainWindow : Window
 
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip(
-                "Only take engagements and skirmishes in this third of the zone.\n" +
-                "Zone names shown are for the zone you are in; the number (Z1/Z2/Z3) is what is stored,\n" +
-                "so the same choice carries across both Bozja and Zadnor.");
+                "このエリア内のCEとスカーミッシュだけを対象にします。\n" +
+                "表示名は現在のフィールドに合わせますが、保存されるのはZ1/Z2/Z3の区分です。\n" +
+                "同じ区分設定が南方ボズヤ戦線とザトゥノル高原の両方に適用されます。");
     }
 
     private void DrawFieldState()
@@ -246,8 +246,8 @@ public sealed class MainWindow : Window
             var right = farm.Territory == territory && farm.Region == region;
             ImGui.TextColored(right ? Green : Yellow,
                 right
-                    ? $"Farming here: {farm.Describe()}"
-                    : $"Farm target is {farm.Describe()} - you are not there.");
+                    ? $"現在のFarm対象: {farm.Describe()}"
+                    : $"Farm対象は {farm.Describe()} です。現在地が対象外です。");
         }
 
         if (!FieldState.Available)
@@ -265,11 +265,11 @@ public sealed class MainWindow : Window
         if (needed > 0)
         {
             var fraction = Math.Clamp((float)mettle / needed, 0f, 1f);
-            ImGui.ProgressBar(fraction, new Vector2(220, 0), $"{mettle:N0} / {needed:N0} mettle");
+            ImGui.ProgressBar(fraction, new Vector2(220, 0), $"戦果 {mettle:N0} / {needed:N0}");
         }
         else
         {
-            ImGui.TextUnformatted($"{mettle:N0} mettle");
+            ImGui.TextUnformatted($"戦果 {mettle:N0}");
         }
     }
 
@@ -302,9 +302,9 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
             var label = ce.Name;
             if (ce.IsDuel)
-                label += "  [duel]";
+                label += "  [一騎打ち]";
             else if (_catalog.IsLargeScale(ce.EventId))
-                label += "  [large-scale]";
+                label += "  [大規模戦闘]";
 
             var nameColour = ce.State switch
             {
@@ -340,7 +340,7 @@ public sealed class MainWindow : Window
                 ConfigSaver.Save(_config);
             }
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Never travel to this engagement.");
+                ImGui.SetTooltip("この対象には参加・移動しません。");
         }
 
         ImGui.EndTable();
@@ -355,8 +355,8 @@ public sealed class MainWindow : Window
             ConfigSaver.Save(_config);
         }
         ImGui.TextColored(Grey,
-            "Uses a local named pipe, the same approach AutoDuty takes. One client is the host and\n" +
-            "picks the objective; the others follow it, so the boxes never split up.");
+            "AutoDutyと同様に、このPC内のローカルNamed Pipeで連携します。1クライアントをホストにし、\n" +
+            "ホストが目的地を決め、他クライアントが追従することで分散を防ぎます。");
 
         if (!enabled)
             return;
@@ -368,10 +368,10 @@ public sealed class MainWindow : Window
             ConfigSaver.Save(_config);
         }
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Exactly one client in the group should be the host.");
+            ImGui.SetTooltip("グループ内でホストにするクライアントは1つだけにしてください。");
 
         var barrier = _config.MultiboxArrivalBarrier;
-        if (ImGui.Checkbox("Wait for every box to arrive before committing", ref barrier))
+        if (ImGui.Checkbox("全クライアント到着後に戦闘開始する", ref barrier))
         {
             _config.MultiboxArrivalBarrier = barrier;
             ConfigSaver.Save(_config);
@@ -381,13 +381,13 @@ public sealed class MainWindow : Window
         {
             var timeout = _config.MultiboxBarrierTimeoutSeconds;
             ImGui.SetNextItemWidth(160);
-            if (ImGui.SliderInt("Barrier timeout (s)", ref timeout, 10, 180))
+            if (ImGui.SliderInt("到着待ちタイムアウト（秒）", ref timeout, 10, 180))
             {
                 _config.MultiboxBarrierTimeoutSeconds = timeout;
                 ConfigSaver.Save(_config);
             }
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("The host releases the group anyway after this long, so one stuck box cannot stall everyone.");
+                ImGui.SetTooltip("この時間を超えると、1クライアントが詰まっていてもホストが待機を解除します。");
         }
 
         ImGui.Separator();
@@ -397,46 +397,46 @@ public sealed class MainWindow : Window
         switch (_link.State)
         {
             case LinkState.Connected:
-                ImGui.TextColored(Green, "Link up");
+                ImGui.TextColored(Green, "接続済み");
                 break;
 
             case LinkState.Connecting when _link.SecondsSearching < 8f:
                 ImGui.TextColored(Yellow,
-                    $"Connecting to the host... (attempt {_link.ConsecutiveFailures + 1})");
+                    $"ホストへ接続中…（試行 {_link.ConsecutiveFailures + 1}）");
                 break;
 
             case LinkState.Connecting:
-                ImGui.TextColored(Red, "No host is listening on this PC.");
+                ImGui.TextColored(Red, "このPC上でホストが見つかりません。");
                 ImGui.TextColored(Grey,
-                    $"Searching for {_link.SecondsSearching:F0}s ({_link.ConsecutiveFailures} attempts" +
-                    (_link.LastLinkError is { } err ? $", last: {err}" : "") + ").\n" +
-                    "Tick \"This client is the host\" on exactly ONE of your boxes - every box\n" +
-                    "defaults to client, so a fresh setup has no host at all. Running alone\n" +
-                    "meanwhile: the deterministic pick still converges on the same objective.");
+                    $"検索中 {_link.SecondsSearching:F0}秒（{_link.ConsecutiveFailures}回試行" +
+                    (_link.LastLinkError is not null ? ", 直近エラーあり（診断ログ参照）" : "") + ").\n" +
+                    "どれか1つのクライアントだけで「このクライアントをホストにする」をONにしてください。\n" +
+                    "初期状態は全クライアントが子機なので、そのままではホストが存在しません。単独動作中も\n" +
+                    "決定論的な対象選択により、各クライアントは同じ目的地へ収束します。");
                 break;
 
             default:
                 ImGui.TextColored(_link.IsHost ? Green : Grey,
-                    _link.IsHost ? "Hosting - waiting for boxes to join" : "Link idle");
+                    _link.IsHost ? "ホスト中 - 他クライアントの接続待ち" : "リンク待機中");
                 break;
         }
 
-        ImGui.TextUnformatted($"Role: {(_link.IsHost ? "host" : "client")}   Peers: {_link.PeerCount}");
+        ImGui.TextUnformatted($"役割: {(_link.IsHost ? "ホスト" : "クライアント")}   接続数: {_link.PeerCount}");
 
         if (_link.IsHost && _link.PeerCount == 0)
         {
             ImGui.TextColored(Grey,
-                "No other box has connected yet. The others must have multibox enabled and must\n" +
-                "NOT be ticked as host.");
+                "まだ他クライアントは接続していません。他クライアント側でもマルチボックスを有効にし、\n" +
+                "ホスト設定はOFFにしてください。");
         }
 
         if (_link.IsHost && _config.MultiboxArrivalBarrier)
-            ImGui.TextUnformatted($"Arrived: {_link.ArrivedCount}/{_link.PeerCount}");
+            ImGui.TextUnformatted($"到着: {_link.ArrivedCount}/{_link.PeerCount}");
 
         var objective = _link.Objective;
         ImGui.TextUnformatted(objective.IsSet
-            ? $"Shared objective: {objective.Kind} #{objective.Id}"
-            : "Shared objective: none");
+            ? $"共有目的地: #{objective.Id}"
+            : "共有目的地: なし");
 
         if (_link.IsHost)
         {
@@ -451,20 +451,20 @@ public sealed class MainWindow : Window
         if (ImGui.Button(Loc.T("Open the multiboxer panel", "マルチボックス操作画面を開く")))
             OnOpenMultiboxer?.Invoke();
         ImGui.TextColored(Grey,
-            "Drive every box from one place - start/stop, push Lost Action loadouts, and send" +
-            " boxes to the nearest aetheryte or cache. Also on /bbr boxes.");
+            "1画面から全クライアントの開始/停止、ロストアクション構成の送信、" +
+            "最寄りエーテライトやロストボックスへの移動を操作できます。/bbr boxes でも開けます。");
 
         ImGui.Spacing();
         if (ImGui.Button(Loc.T("Open the group duty-action hotbar", "グループDuty Actionバーを開く")))
             OnOpenDutyActions?.Invoke();
         ImGui.TextColored(Grey,
-            "Every connected box's two Duty Action slots on one bar - icon, charges and recharge,\n" +
-            "the same information you see for your own. Also on /bbr duty.");
+            "接続中の全クライアントのDuty Action 2枠を、アイコン・残数・リキャスト付きで1画面に表示します。\n" +
+            "自分の枠と同じ情報を確認できます。/bbr duty でも開けます。");
 
         ImGui.Separator();
         ImGui.TextColored(Grey,
-            "Even with the link down, every box runs the same deterministic pick, so they still\n" +
-            "converge on the same engagement instead of scattering.");
+            "リンクが切れても各クライアントは同じ決定論的選択を行うため、\n" +
+            "別々の対象へ散らばりにくい設計です。");
     }
 
     /// <summary>Raised by the "open the hotbar" button; the plugin owns that window.</summary>
@@ -475,26 +475,26 @@ public sealed class MainWindow : Window
 
     private void DrawDependencies()
     {
-        Row("vnavmesh", _navmesh.Available, "movement and pathfinding - required");
+        Row("vnavmesh", _navmesh.Available, "移動・経路探索（必須）");
 
         var avoidance = _director.Avoidance;
         var fork = avoidance.Fork;
 
         Row(avoidance.ForkName, _director.AvoidanceAvailable, fork switch
         {
-            BossModFork.Reborn => "AoE avoidance only - AI in ForbidActions, no AI preset, autorotation force-disabled",
-            BossModFork.Original => "AoE avoidance only - AI mode with auto-target off, no rotation preset active",
-            _ => "AoE avoidance - either fork works; Reborn is preferred",
+            BossModFork.Reborn => "AoE回避専用。AIはForbidActions、AIプリセットなし、自動ローテーション無効",
+            BossModFork.Original => "AoE回避専用。自動ターゲットOFF、ローテーションプリセットなし",
+            _ => "AoE回避。どちらのforkでも動作しますがRebornを推奨",
         });
 
         if (avoidance.UnavailableReason is { } reason)
         {
             ImGui.Indent();
-            ImGui.TextColored(Red, reason);
+            ImGui.TextColored(Red, "BossModとの接続に失敗しています。詳細は /xllog を確認してください。");
             ImGui.TextColored(Grey,
-                "BossMod Reborn (FFXIV-CombatReborn/BossmodReborn) gives the fullest integration - it reports\n" +
-                "when it is dodging, so travel yields to it. The original awgil BossMod also works, with\n" +
-                "the differences listed below.");
+                "BossMod Rebornは回避中かどうかを取得できるため、最も完全な連携ができます。\n" +
+                "回避中は移動制御をBossModへ譲ります。オリジナル版BossModでも動作しますが、\n" +
+                "下記の制約があります。");
             ImGui.Unindent();
         }
 
@@ -502,32 +502,32 @@ public sealed class MainWindow : Window
         {
             ImGui.Indent();
             ImGui.TextColored(Yellow,
-                "Both BossMod forks are loaded. They register the same BossMod.* IPC gates, so whichever\n" +
-                "loaded last owns them and unloading either strips them - unload one. Driving Reborn.");
+                "BossModの2つのforkが同時に読み込まれています。同じBossMod.* IPCを共有するため、\n" +
+                "後から読み込まれた側が競合します。どちらか一方をアンロードしてください。現在はRebornを使用します。");
             ImGui.Unindent();
         }
 
-        Row("Rotation Solver Reborn", _director.RotationAvailable, "the rotation");
+        Row("Rotation Solver Reborn", _director.RotationAvailable, "戦闘ローテーション（必須）");
 
         ImGui.Separator();
-        ImGui.TextColored(Grey, "Roles");
-        ImGui.BulletText($"{avoidance.ForkName} moves you out of telegraphed AoEs. It presses no buttons.");
-        ImGui.BulletText("RSR runs the rotation. It is the only thing queueing actions.");
+        ImGui.TextColored(Grey, "役割分担");
+        ImGui.BulletText($"{avoidance.ForkName}: 予兆AoEから移動して回避します。戦闘アクションは押しません。");
+        ImGui.BulletText("RSR: 戦闘ローテーションを実行し、戦闘アクションの入力を担当します。");
 
         if (fork == BossModFork.Original)
         {
-            ImGui.BulletText("The original closes on the target itself (FollowSlot); our own approach stands down.");
-            ImGui.BulletText("It cannot say when it is dodging, so travel cannot yield to a dodge mid-path -");
+            ImGui.BulletText("オリジナル版はFollowSlotで対象へ接近するため、BBR側の接近制御を停止します。");
+            ImGui.BulletText("オリジナル版は回避中か判定できないため、経路移動中に回避へ制御を譲れません。");
             ImGui.Indent();
             ImGui.TextColored(Grey,
-                "it only dodges while we are not pathing (holds, and once arrived). Reborn dodges en route too.");
+                "経路移動していない待機中・到着後のみ回避します。Rebornは移動中も回避できます。");
             ImGui.Unindent();
         }
 
         if (_director.AvoidanceAvailable)
         {
             ImGui.Separator();
-            ImGui.TextColored(Grey, "Avoidance telemetry");
+            ImGui.TextColored(Grey, "回避テレメトリ");
             if (avoidance.SteeringKnown)
             {
                 var (zones, navigating) = _director.AvoidanceSignals;
@@ -535,22 +535,22 @@ public sealed class MainWindow : Window
                 // Both halves shown separately, because they mean different things and confusing
                 // them is what stalled the runner: "wants to move" is true almost always once
                 // Reborn's AI is on, and only "danger zones > 0" means there is a mechanic.
-                ImGui.TextUnformatted($"Danger zones active: {zones}");
-                ImGui.TextUnformatted($"BossMod wants to move: {(navigating ? "yes" : "no")}");
+                ImGui.TextUnformatted($"危険領域: {zones}");
+                ImGui.TextUnformatted($"BossMod移動要求: {(navigating ? "あり" : "なし")}");
                 ImGui.TextColored(_director.AvoidanceIsSteering ? Yellow : Grey,
-                    $"=> yielding movement: {(_director.AvoidanceIsSteering ? "yes" : "no")}" +
+                    $"=> 移動制御を譲渡: {(_director.AvoidanceIsSteering ? "はい" : "いいえ")}" +
                     (_controller.SecondsYielding > 0f ? $" ({_controller.SecondsYielding:F0}s)" : ""));
 
                 if (navigating && zones == 0)
                 {
                     ImGui.TextColored(Grey,
-                        "BossMod wants to move but reports no telegraphed danger - that is\n" +
-                        "repositioning, not a dodge, so travel keeps the path. This is normal.");
+                        "BossModは移動を要求していますが危険予兆はありません。これは\n" +
+                        "位置調整であり回避ではないため、BBRの経路移動を継続します。正常動作です。");
                 }
             }
             else
             {
-                ImGui.TextColored(Grey, "Danger zones / steering: not reported by this fork (no Hints.* or AI.* gates).");
+                ImGui.TextColored(Grey, "危険領域/移動制御: このforkでは取得できません（Hints.* / AI.* IPCなし）。");
             }
 
             // Reborn cannot be asked what state it is in, so what we can honestly show is what we
@@ -558,37 +558,37 @@ public sealed class MainWindow : Window
             // interval means the heartbeat is off or is being withheld. (The original's AI on/off
             // is a config value and IS read back before each heartbeat write.)
             ImGui.TextUnformatted(
-                $"Last sent - AI: {Age(avoidance.SecondsSinceSent)}, " +
-                $"rotation: {_director.Rotation.CurrentMode?.ToString() ?? "nothing"} " +
+                $"最終送信 - AI: {Age(avoidance.SecondsSinceSent)}, " +
+                $"rotation: {_director.Rotation.CurrentMode?.ToString() ?? "未設定"} " +
                 $"{Age(_director.Rotation.SecondsSinceSent)}");
-            if (ImGui.Button("Re-apply avoidance-only config"))
+            if (ImGui.Button("回避専用設定を再適用"))
                 avoidance.ApplyAvoidanceOnlyConfig(force: true);
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip(fork == BossModFork.Original
-                    ? "Re-asserts (read-before-write): AIConfig.ForbidActions = true, AIConfig.ForbidMovement = false,\n" +
-                      "and Presets.ClearActive if any user preset or force-disable is in the active list.\n" +
-                      "Deliberately NOT SetForceDisabled - in the original that removes the AI preset (the dodging)."
-                    : "Re-sends: /bmrai forbidactions on, /bmrai forbidmovement off,\n" +
-                      "AI.SetPreset(\"\") and Presets.SetForceDisabled().");
+                    ? "現在値を確認してから AIConfig.ForbidActions=true / ForbidMovement=false を再適用し、\n" +
+                      "ユーザープリセットやforce-disableが有効ならPresets.ClearActiveを実行します。\n" +
+                      "オリジナル版ではSetForceDisabledが回避AI自体を外すため、意図的に使用しません。"
+                    : "/bmrai forbidactions on、/bmrai forbidmovement off を再送し、\n" +
+                      "AI.SetPreset(\"\") と Presets.SetForceDisabled() を再適用します。");
 
             ImGui.SameLine();
-            if (ImGui.Button($"Restore {avoidance.ForkName}"))
+            if (ImGui.Button($"{avoidance.ForkName} の設定を復元"))
                 avoidance.ReleaseControl();
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Stop the AI and put back the settings and presets we changed.");
+                ImGui.SetTooltip("AIを停止し、BBRが変更した設定・プリセットを元に戻します。");
         }
         return;
 
         static void Row(string name, bool ok, string note)
         {
-            ImGui.TextColored(ok ? Green : Red, ok ? "OK  " : "MISSING  ");
+            ImGui.TextColored(ok ? Green : Red, ok ? "OK  " : "未接続  ");
             ImGui.SameLine();
             ImGui.TextUnformatted(name);
             ImGui.SameLine();
             ImGui.TextColored(Grey, $"- {note}");
         }
 
-        static string Age(float seconds) => seconds < 0f ? "(never)" : $"{seconds:F0}s ago";
+        static string Age(float seconds) => seconds < 0f ? "（未送信）" : $"{seconds:F0}秒前";
     }
 
     private string BuildDiagnostics()

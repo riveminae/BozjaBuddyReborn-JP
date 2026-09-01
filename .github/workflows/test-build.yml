@@ -34,7 +34,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $version = (Get-Content version-test.txt -Raw).Trim()
+          # Every non-bot workflow run gets a monotonically increasing 1.0.90.x version.
+          # This is important for the Dalamud custom-repository updater: publishing a new ZIP
+          # under the same AssemblyVersion does not reliably offer an update to an installed test build.
+          $version = "1.0.90.${{ github.run_number }}"
           if ($version -notmatch '^1\.0\.90\.\d+$') {
             throw "Invalid test version '$version'. Expected 1.0.90.x."
           }

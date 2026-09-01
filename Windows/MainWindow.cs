@@ -1,5 +1,6 @@
 using System;
 using System.Numerics;
+using System.Reflection;
 using BozjaBuddyReborn.Automation;
 using BozjaBuddyReborn.External;
 using BozjaBuddyReborn.Game;
@@ -28,6 +29,8 @@ public sealed class MainWindow : Window
     private readonly NavmeshIpc _navmesh;
     private readonly MultiboxLink _link;
     private readonly CeCatalog _catalog;
+    private static readonly Version AssemblyVersion = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0);
+    private static bool IsTestBuild => AssemblyVersion.Major == 1 && AssemblyVersion.Minor == 0 && AssemblyVersion.Build == 90;
 
     public MainWindow(
         Configuration config,
@@ -86,6 +89,13 @@ public sealed class MainWindow : Window
     private void DrawControls()
     {
         var running = _controller.Running;
+
+        if (IsTestBuild)
+        {
+            ImGui.TextColored(Yellow, $"テスト版 v{AssemblyVersion} を使用中です。");
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("不具合時は Dalamud のカスタムプラグインリポジトリから Test repo を無効化/削除し、Stable repo を有効化して Bozja Buddy Reborn JP を更新または再インストールしてください。");
+        }
 
         if (ImGui.Button(running ? Loc.T("Stop", "停止") : Loc.T("Start", "開始"), new Vector2(90, 0)))
             _controller.Toggle();

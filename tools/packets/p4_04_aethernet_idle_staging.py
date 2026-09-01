@@ -5,6 +5,13 @@ ROOT = Path(__file__).resolve().parents[2]
 P = ROOT / "Automation/BozjaController.cs"
 text = P.read_text(encoding="utf-8-sig")
 
+# Later localization/context-policy packets legitimately change the status strings around the
+# staging branch. The stable semantic markers are the call and the helper itself.
+if "TryGetAethernetIdleSpot(territory, region" in text and "private bool TryGetAethernetIdleSpot" in text:
+    print("Automation/BozjaController.cs: aethernet idle staging already wired")
+    raise SystemExit(0)
+
+
 def repl(old: str, new: str) -> None:
     global text
     if new in text:
@@ -14,13 +21,95 @@ def repl(old: str, new: str) -> None:
     text = text.replace(old, new, 1)
 
 repl(
-    """        if (region == FieldRegionId.Unknown || !TryGetIdleSpot(territory, region, out var spot))\n        {\n            Status = $\"{reason} Holding position.\";\n            _movement.Stop();\n            return;\n        }\n\n        var label = FieldRegions.Label(territory, region);\n""",
-    """        // v1.1 stages at the field aethernet whenever possible. A Relic restriction picks\n        // a node classified inside that exact region; ordinary idle uses the nearest node. This\n        // lets the same BOCCHI router exploit the aethernet instantly when the next activity pops.\n        Vector3 spot;\n        string label;\n        if (TryGetAethernetIdleSpot(territory, region, out spot, out var aethernetLabel))\n        {\n            label = aethernetLabel;\n        }\n        else if (region != FieldRegionId.Unknown && TryGetIdleSpot(territory, region, out spot))\n        {\n            label = FieldRegions.Label(territory, region);\n        }\n        else\n        {\n            Status = $\"{reason} Holding position.\";\n            _movement.Stop();\n            return;\n        }\n""",
+    """        if (region == FieldRegionId.Unknown || !TryGetIdleSpot(territory, region, out var spot))
+        {
+            Status = $"{reason} Holding position.";
+            _movement.Stop();
+            return;
+        }
+
+        var label = FieldRegions.Label(territory, region);
+""",
+    """        // v1.1 stages at the field aethernet whenever possible. A Relic restriction picks
+        // a node classified inside that exact region; ordinary idle uses the nearest node. This
+        // lets the same BOCCHI router exploit the aethernet instantly when the next activity pops.
+        Vector3 spot;
+        string label;
+        if (TryGetAethernetIdleSpot(territory, region, out spot, out var aethernetLabel))
+        {
+            label = aethernetLabel;
+        }
+        else if (region != FieldRegionId.Unknown && TryGetIdleSpot(territory, region, out spot))
+        {
+            label = FieldRegions.Label(territory, region);
+        }
+        else
+        {
+            Status = $"{reason} その場で待機します。";
+            _movement.Stop();
+            return;
+        }
+""",
 )
 
 repl(
-    """    /// <summary>Resolve a configured staging point to a ground position, cached per key.</summary>\n    private bool TryGetIdleSpot(uint territory, FieldRegionId region, out Vector3 spot)\n""",
-    """    /// <summary>Choose an aethernet node for idle staging, resolving its actual navmesh floor.</summary>\n    private bool TryGetAethernetIdleSpot(\n        uint territory,\n        FieldRegionId preferredRegion,\n        out Vector3 spot,\n        out string label)\n    {\n        spot = Vector3.Zero;\n        label = string.Empty;\n        var nodes = FieldAethernet.ForTerritory(territory);\n        if (nodes.Count == 0)\n            return false;\n\n        FieldAethernet.Node? best = null;\n        var bestDistance = float.MaxValue;\n        foreach (var node in nodes)\n        {\n            // For a Relic/region restriction, never choose a node confidently belonging to a\n            // different region. The base camp is allowed only if its own position classifies into\n            // the requested region. Unknown classification is not trusted for a restricted farm.\n            if (preferredRegion != FieldRegionId.Unknown\n                && FieldRegions.ClassifyByPosition(territory, node.Position) != preferredRegion)\n                continue;\n\n            var distance = Movement.DistanceToPlayer(node.Position);\n            if (best == null || distance < bestDistance)\n            {\n                best = node;\n                bestDistance = distance;\n            }\n        }\n\n        if (best is not { } selected)\n            return false;\n\n        var grounded = _navmesh.ResolveGroundPoint(selected.Position.X, selected.Position.Z);\n        if (grounded == Vector3.Zero)\n            grounded = selected.Position;\n        spot = grounded;\n\n        try\n        {\n            var place = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.PlaceName>()?\n                .GetRowOrDefault(selected.PlaceNameId)?.Name.ExtractText();\n            label = string.IsNullOrWhiteSpace(place) ? \"エーテライト\" : place;\n        }\n        catch\n        {\n            label = \"エーテライト\";\n        }\n\n        return true;\n    }\n\n    /// <summary>Resolve a configured staging point to a ground position, cached per key.</summary>\n    private bool TryGetIdleSpot(uint territory, FieldRegionId region, out Vector3 spot)\n""",
+    """    /// <summary>Resolve a configured staging point to a ground position, cached per key.</summary>
+    private bool TryGetIdleSpot(uint territory, FieldRegionId region, out Vector3 spot)
+""",
+    """    /// <summary>Choose an aethernet node for idle staging, resolving its actual navmesh floor.</summary>
+    private bool TryGetAethernetIdleSpot(
+        uint territory,
+        FieldRegionId preferredRegion,
+        out Vector3 spot,
+        out string label)
+    {
+        spot = Vector3.Zero;
+        label = string.Empty;
+        var nodes = FieldAethernet.ForTerritory(territory);
+        if (nodes.Count == 0)
+            return false;
+
+        FieldAethernet.Node? best = null;
+        var bestDistance = float.MaxValue;
+        foreach (var node in nodes)
+        {
+            if (preferredRegion != FieldRegionId.Unknown
+                && FieldRegions.ClassifyByPosition(territory, node.Position) != preferredRegion)
+                continue;
+
+            var distance = Movement.DistanceToPlayer(node.Position);
+            if (best == null || distance < bestDistance)
+            {
+                best = node;
+                bestDistance = distance;
+            }
+        }
+
+        if (best is not { } selected)
+            return false;
+
+        var grounded = _navmesh.ResolveGroundPoint(selected.Position.X, selected.Position.Z);
+        if (grounded == Vector3.Zero)
+            grounded = selected.Position;
+        spot = grounded;
+
+        try
+        {
+            var place = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.PlaceName>()?
+                .GetRowOrDefault(selected.PlaceNameId)?.Name.ExtractText();
+            label = string.IsNullOrWhiteSpace(place) ? "エーテライト" : place;
+        }
+        catch
+        {
+            label = "エーテライト";
+        }
+
+        return true;
+    }
+
+    /// <summary>Resolve a configured staging point to a ground position, cached per key.</summary>
+    private bool TryGetIdleSpot(uint territory, FieldRegionId region, out Vector3 spot)
+""",
 )
 
 P.write_text(text, encoding="utf-8")

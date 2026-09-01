@@ -83,8 +83,18 @@ require(
 )
 require(
     "Automation/SupplyManager.cs",
-    "var critical = noPotionProtection && noRecoverableHeal;",
-    "critical supply means Potion Kit protection and self-heal are both absent",
+    "var noPotionProtection = potion <= 0 && !_survival.HasAutoPotion();",
+    "critical supply checks Potion Kit reserve/effect",
+)
+require(
+    "Automation/SupplyManager.cs",
+    "var noHeal = heals <= 0;",
+    "critical supply checks usable self-heal absence",
+)
+require(
+    "Automation/SupplyManager.cs",
+    "var critical = noPotionProtection && noHeal;",
+    "critical supply requires both recovery paths absent",
 )
 require(
     "Automation/SupplyManager.cs",

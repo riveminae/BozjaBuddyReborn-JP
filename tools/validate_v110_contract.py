@@ -133,6 +133,37 @@ require_order(
     "a live CE outranks supply recovery",
 )
 
+# Q54C: low-but-not-critical stock finishes the skirmish already reached, then goes to the cache
+# before selecting another objective. Merely travelling toward a fresh skirmish does not qualify
+# as "finish current skirmish": the committed latch is required.
+require("Automation/BozjaController.cs", "RunRoutineSupplyRecovery(supply);", "routine low stock enters cache recovery")
+require(
+    "Automation/BozjaController.cs",
+    "var finishingCurrentSkirmish = _lastObjective.Kind == ObjectiveKind.Fate",
+    "routine refill explicitly identifies the current skirmish",
+)
+require(
+    "Automation/BozjaController.cs",
+    "&& _committed",
+    "routine refill waits only for a skirmish already reached",
+)
+require(
+    "Automation/BozjaController.cs",
+    "&& IsObjectiveStillWorthDoing(_lastObjective);",
+    "routine refill stops waiting when that skirmish ends",
+)
+require(
+    "Automation/BozjaController.cs",
+    "_supplyRecovery.Tick(critical: false);",
+    "routine recovery uses the noncritical supply trip",
+)
+require_order(
+    "Automation/BozjaController.cs",
+    "RunCriticalSupplyRecovery(supply);",
+    "RunRoutineSupplyRecovery(supply);",
+    "critical depletion outranks routine low-watermark refill",
+)
+
 # Required dependency recovery must retain the safe-stop path and survival automation while
 # waiting. Exact timers are implementation details; these are the architectural invariants.
 require(

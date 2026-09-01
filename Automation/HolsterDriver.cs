@@ -93,6 +93,7 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
 
     private long _lastUseMs;
     private long _lastSurvivalUseMs;
+    private bool _insideEmergencyRiskWindow;
 
     private Phase _phase;
     private byte _pendingRow;
@@ -262,8 +263,12 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
             return true;
 
         var hp = SurvivalPolicy.HpFraction();
-        var list = hp <= _survival.EmergencyThreshold
-            ? _survival.EmergencyPriority(travelling)
+        var emergency = hp <= _survival.EmergencyThreshold;
+        var enteredEmergency = emergency && !_insideEmergencyRiskWindow;
+        _insideEmergencyRiskWindow = emergency;
+
+        var list = emergency
+            ? _survival.EmergencyPriority(travelling, includeReraiser: enteredEmergency)
             : hp <= _survival.HealThreshold
                 ? _survival.HealPriority(travelling)
                 : null;
@@ -311,6 +316,8 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
     public void Reset()
     {
         _lastUseMs = 0;
+        _lastSurvivalUseMs = 0;
+        _insideEmergencyRiskWindow = false;
         LastResult = string.Empty;
         Abandon();
     }

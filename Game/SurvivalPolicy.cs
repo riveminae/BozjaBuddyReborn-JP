@@ -54,11 +54,14 @@ public sealed class SurvivalPolicy(Configuration config, LostActionCatalog catal
         ["Deep Essence of the Beast", "Essence of the Beast", "Deep Essence of the Platebearer", "Essence of the Platebearer", "Deep Essence of the Veteran", "Essence of the Veteran"],
     };
 
-    public IEnumerable<string> EmergencyPriority(bool travelling)
+    public IEnumerable<string> EmergencyPriority(bool travelling, bool includeReraiser)
     {
-        // Resistance Reraiser is an instant item. Lost Reraise is the all-job action fallback but
-        // has a cast, so never attempt it while travel is intentionally continuing.
-        yield return "Resistance Reraiser";
+        // Reraiser is intentionally edge-triggered by HolsterDriver: remaining below the emergency
+        // threshold for several ticks must not consume one every time the prior attempt has no
+        // recognisable status. A fresh risk window begins only after HP leaves and re-enters the
+        // emergency band. Lost Reraise remains a normal emergency fallback when standing still.
+        if (includeReraiser)
+            yield return "Resistance Reraiser";
         if (!travelling)
             yield return "Lost Reraise";
 

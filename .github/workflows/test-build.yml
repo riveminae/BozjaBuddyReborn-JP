@@ -47,6 +47,9 @@ jobs:
       - name: Apply timeout-safe packet patches
         run: python tools/packets/run_all.py
 
+      - name: Enforce v1.1 static contract
+        run: python tools/validate_v110_contract.py
+
       - name: Validate repository diff
         shell: pwsh
         run: |

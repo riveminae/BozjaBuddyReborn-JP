@@ -34,11 +34,11 @@ patch(
     """            _config, _catalog, _selector, _movement, _director, _approach, _holster, _link, _navmesh, _regions,\n            _errands, _loadoutDriver, _signUps, _partySupport, _deathRecovery, _dependencies);\n""",
 )
 
-# Controller field + constructor, after P8's death-recovery field.
+# Controller field + constructor, after P8's death-recovery field. _relicFarm follows them.
 patch(
     "Automation/BozjaController.cs",
-    """    private readonly PartySupportDriver _partySupport;\n    private readonly DeathRecoveryDriver _deathRecovery;\n""",
-    """    private readonly PartySupportDriver _partySupport;\n    private readonly DeathRecoveryDriver _deathRecovery;\n    private readonly DependencySupervisor _dependencies;\n""",
+    """    private readonly PartySupportDriver _partySupport;\n    private readonly DeathRecoveryDriver _deathRecovery;\n    private readonly RelicFarmCoordinator _relicFarm;\n""",
+    """    private readonly PartySupportDriver _partySupport;\n    private readonly DeathRecoveryDriver _deathRecovery;\n    private readonly DependencySupervisor _dependencies;\n    private readonly RelicFarmCoordinator _relicFarm;\n""",
 )
 patch(
     "Automation/BozjaController.cs",
@@ -47,8 +47,8 @@ patch(
 )
 patch(
     "Automation/BozjaController.cs",
-    """        _partySupport = partySupport;\n        _deathRecovery = deathRecovery;\n    }\n""",
-    """        _partySupport = partySupport;\n        _deathRecovery = deathRecovery;\n        _dependencies = dependencies;\n    }\n""",
+    """        _partySupport = partySupport;\n        _deathRecovery = deathRecovery;\n        _relicFarm = new RelicFarmCoordinator(config, new RelicTracker());\n    }\n""",
+    """        _partySupport = partySupport;\n        _deathRecovery = deathRecovery;\n        _dependencies = dependencies;\n        _relicFarm = new RelicFarmCoordinator(config, new RelicTracker());\n    }\n""",
 )
 patch(
     "Automation/BozjaController.cs",

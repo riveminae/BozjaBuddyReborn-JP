@@ -8,21 +8,22 @@ namespace BozjaBuddyReborn.External;
 /// <summary>
 /// Optional TextAdvance integration used by death recovery.
 ///
-/// TextAdvance exposes read-only state IPC as TextAdvance.IsEnabled / IsPaused.  It does not expose
-/// a simple global enable/disable IPC; its documented command surface is /at e and /at d.  Those
+/// TextAdvance exposes read-only state IPC as TextAdvance.IsEnabled / IsPaused. It does not expose
+/// a simple global enable/disable IPC; its documented command surface is /at e and /at d. Those
 /// commands are deliberately contained in this wrapper so the controller cannot accidentally leave
 /// a user's TextAdvance setting changed after a recovery attempt.
-///
-/// Upstream API reference: NightmareXIV/TextAdvance, Services/IPCTester.cs.
 /// </summary>
 public sealed class TextAdvanceIpc
 {
+    private const long CommandRetryMs = 1500;
+
     private readonly ICallGateSubscriber<bool>? _isEnabled;
     private readonly ICallGateSubscriber<bool>? _isPaused;
 
     private bool _snapshotTaken;
     private bool _wasEnabled;
     private bool _changedByUs;
+    private long _lastEnableCommandMs;
 
     public TextAdvanceIpc(IDalamudPluginInterface plugin)
     {
@@ -64,7 +65,7 @@ public sealed class TextAdvanceIpc
     }
 
     /// <summary>
-    /// Remember the user's state once and request TextAdvance ON when needed.  The command is
+    /// Remember the user's state once and request TextAdvance ON when needed. The command is
     /// asynchronous; callers should poll <see cref="Enabled"/> rather than assuming this call
     /// completed the transition in the same framework tick.
     /// </summary>
@@ -82,8 +83,13 @@ public sealed class TextAdvanceIpc
         if (Enabled)
             return true;
 
+        var now = Environment.TickCount64;
+        if (_lastEnableCommandMs != 0 && now - _lastEnableCommandMs < CommandRetryMs)
+            return true;
+
         try
         {
+            _lastEnableCommandMs = now;
             Svc.Commands.ProcessCommand("/at e");
             _changedByUs = true;
             Svc.Log.Information("[BozjaBuddyReborn] Requested temporary TextAdvance enable for death recovery.");
@@ -120,14 +126,11 @@ public sealed class TextAdvanceIpc
         }
     }
 
-    /// <summary>
-    /// Forget a snapshot without issuing a command.  Used during plugin disposal when command
-    /// execution is no longer safe; normal recovery paths should use RestoreOriginalState().
-    /// </summary>
     public void ResetSnapshot()
     {
         _snapshotTaken = false;
         _wasEnabled = false;
         _changedByUs = false;
+        _lastEnableCommandMs = 0;
     }
 }

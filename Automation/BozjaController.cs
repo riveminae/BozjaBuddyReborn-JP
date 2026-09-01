@@ -425,9 +425,26 @@ public sealed class BozjaController
             return;
         }
 
-        if (_supplyRecovery.Active)
+        // Routine low-watermark refill never abandons a skirmish that we have already
+        // reached and committed to. Once that skirmish ends, or if we had only been travelling
+        // toward a fresh one, supply wins before another objective is selected. CE registration
+        // continues above this block and a selected CE is still free to Commence immediately
+        // because SignUpRunner only holds Commence for CriticalNoRecovery.
+        if (supply.InventoryAvailable && supply.NeedsRoutineRefill)
         {
-            Svc.Log.Information("[BozjaBuddyReborn] Critical survival supply recovered; returning to normal objective selection.");
+            var finishingCurrentSkirmish = _lastObjective.Kind == ObjectiveKind.Fate
+                                           && _committed
+                                           && IsObjectiveStillWorthDoing(_lastObjective);
+            if (!finishingCurrentSkirmish)
+            {
+                RunRoutineSupplyRecovery(supply);
+                return;
+            }
+        }
+
+        if (_supplyRecovery.Active && !supply.NeedsRoutineRefill)
+        {
+            Svc.Log.Information("[BozjaBuddyReborn] Survival supply recovered above low-water marks; returning to normal objective selection.");
             _supplyRecovery.Reset();
         }
 
@@ -494,6 +511,29 @@ public sealed class BozjaController
 
         if (supply.Reasons.Count > 0)
             Svc.Log.Debug($"[BozjaBuddyReborn] Critical supply recovery: {string.Join("; ", supply.Reasons)}.");
+    }
+
+    private void RunRoutineSupplyRecovery(SupplyStatus supply)
+    {
+        State = ControllerState.Travelling;
+
+        // Routine recovery is entered only when no committed live skirmish remains, so it is safe
+        // to forget any stale/travel-only objective and let selection start fresh after refill.
+        _lastObjective = SharedObjective.None;
+        _reportedArrival = false;
+        _committed = false;
+        _returning = false;
+        _arrivedAtMs = 0;
+
+        _approach.Release();
+        _director.Travel(_config.UseBossModAvoidance);
+        _holster.TickTravelSurvival();
+
+        _supplyRecovery.Tick(critical: false);
+        Status = _supplyRecovery.Status;
+
+        if (supply.Reasons.Count > 0)
+            Svc.Log.Debug($"[BozjaBuddyReborn] Routine supply recovery: {string.Join("; ", supply.Reasons)}.");
     }
 
     private void TickAutomaticCeRegistration()

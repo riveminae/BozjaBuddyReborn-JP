@@ -26,7 +26,7 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 - `tools/validate_v110_contract.py` をCIへ組み込み、CE安全クリック、mounted invariant、補給優先順位、依存復旧、敵ランク安全側判定、BOCCHI経路計測の安全性、AGPL/provenance等の設計不変条件をcompile前に検査する。
 - BOCCHI-style Direct / Aethernet / Return 経路は実装済み。出発AethernetはBOCCHIと同じ `base camp → 45y graph snap → nearest node` で1ノードに解決する。
 - 長距離Aethernet候補では `vnavmesh.Nav.PathfindCancelable` を使って出発ノードまでの実地上経路長を非同期計測する。最大1本・最大750msで、遅い計測はcancel完了を待ってから水平距離fallbackへ戻す。Stop/目的地変更時も古い計測をdrainしてから新しい移動を開始する。
-- inbound Aethernet→最終目的地のコストはfull BOCCHI zone graphをvendorしていないため、現在も水平距離近似。したがってP2-01はPARTIALのまま。
+- Direct / Aethernet / Return はvendored `TraversalCandidate`の同一cost modelで比較する。inbound Aethernet→最終目的地はfull BOCCHI zone graphをvendorしていないため、現在も水平距離近似。
 - Lifestreamはイベント移動中に欠落すれば即徒歩fallback、待機地点/補給など非緊急移動では最大30秒復帰待ち。
 - 到達不能スカーミッシュは同一spawnだけBlacklistし、FATE消滅後に自動解除する。
 - 手動移動はWASD/矢印および左右マウス同時押しを検出し、3秒quietになるまでvnavmeshをyieldする。
@@ -53,7 +53,7 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 | P0-01 | DONE | baseline audit + build確認 | Debug/Release/package/publish成功 |
 | P1-01 | DONE | AGPL/notice検証 | root AGPL、BBR/BOCCHI/KanoNoUta fork/Ocelot/ECommons provenanceを明記 |
 | P1-02 | DONE | Test version 1.0.90.x統一 | workflow run numberによる自動version、manifest/assembly/package同期 |
-| P2-01 | PARTIAL | Vendored BOCCHI traversal model | BOCCHI constants/Return/single-departure規則をvendor化。出発walkはvnavmesh実経路長を計測。inbound→goalのfull graph costは未導入 |
+| P2-01 | DONE | Vendored BOCCHI traversal model | BOCCHI constants/TraversalCandidate/Return/single-departure規則をvendor化。出発walkはvnavmesh実経路長を計測。inbound→goalはfull zone graph未vendorのため水平距離近似 |
 | P2-02 | DONE | ReturnTeleportWalk | `FieldTravelRouter.Returning`、Return確認、base→Aethernet→walk実装済み |
 | P2-03 | DONE | route retry / blacklist | 3回stall後spawn blacklist、FATE消滅時prune、Start時clear |
 | P2-04 | DONE | manual movement yield | WASD/矢印/左右マウス同時押し + 3秒quiet window |

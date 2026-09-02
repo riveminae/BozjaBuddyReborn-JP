@@ -33,7 +33,7 @@ jobs:
           fi
 
           compare="$(curl -fsSL "https://api.github.com/repos/OhKannaDuh/BOCCHI/compare/${PINNED_SHA}...${latest_sha}")"
-          watched_re='^(BOCCHI.Common/Data/Zones/NavigationApproach.cs|BOCCHI.Common/Data/Zones/Graph/Traversal/WalkTeleportWalkCalculator.cs|BOCCHI.Common/Data/Zones/Graph/Traversal/ReturnTeleportWalkCalculator.cs)$'
+          watched_re='^(BOCCHI.Common/Data/Zones/NavigationApproach.cs|BOCCHI.Common/Data/Zones/Graph/Traversal/GraphTraverser.cs|BOCCHI.Common/Data/Zones/Graph/Traversal/WalkTeleportWalkCalculator.cs|BOCCHI.Common/Data/Zones/Graph/Traversal/ReturnTeleportWalkCalculator.cs)$'
           changed_files="$(jq -r '.files[]?.filename' <<<"$compare" | grep -E "$watched_re" || true)"
 
           if [[ -z "$changed_files" ]]; then

@@ -74,6 +74,16 @@ require(
     "BOCCHI graph snap radius is retained",
 )
 require(
+    "Vendor/BOCCHI/TraversalCandidate.cs",
+    "public readonly record struct TraversalCandidate(float TotalCost);",
+    "direct, aethernet, and Return routes share BOCCHI candidate costs",
+)
+require(
+    "Automation/FieldTravelRouter.cs",
+    "new TraversalCandidate(direct)",
+    "direct travel enters the same candidate comparison as traversal routes",
+)
+require(
     "Automation/FieldTravelRouter.cs",
     "ResolveDepartureNode(nodes, start)",
     "aethernet planning resolves one BOCCHI-style departure node",

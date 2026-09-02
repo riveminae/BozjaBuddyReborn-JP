@@ -122,7 +122,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             ? _config.NavigationReturnCost
             : NavigationConstants.ReturnCost;
 
-        var best = direct;
+        var best = new TraversalCandidate(direct);
         var resolvedDeparture = ResolveDepartureNode(nodes, start);
         if (_config.UseAethernetTravel && _lifestream.Available && nodes.Count >= 2
             && resolvedDeparture is { } departure)
@@ -138,10 +138,12 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                 if (inbound.IsBaseCamp && !departure.IsBaseCamp)
                     continue;
 
-                best = MathF.Min(best,
+                var candidate = new TraversalCandidate(
                     walkToDeparture
                     + hopCost
                     + Movement.HorizontalDistance(inbound.Position, destination));
+                if (candidate.TotalCost < best.TotalCost)
+                    best = candidate;
             }
         }
 
@@ -152,20 +154,25 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             && !Svc.Condition[ConditionFlag.InCombat]
             && GeneralActions.ReturnReady())
         {
-            best = MathF.Min(best, returnCost + Movement.HorizontalDistance(baseCamp.Position, destination));
+            var directReturn = new TraversalCandidate(
+                returnCost + Movement.HorizontalDistance(baseCamp.Position, destination));
+            if (directReturn.TotalCost < best.TotalCost)
+                best = directReturn;
             if (_config.UseAethernetTravel && _lifestream.Available)
             {
                 foreach (var inbound in nodes)
                 {
                     if (inbound.IsBaseCamp)
                         continue;
-                    best = MathF.Min(best, returnCost + hopCost
+                    var candidate = new TraversalCandidate(returnCost + hopCost
                         + Movement.HorizontalDistance(inbound.Position, destination));
+                    if (candidate.TotalCost < best.TotalCost)
+                        best = candidate;
                 }
             }
         }
 
-        return best;
+        return best.TotalCost;
     }
 
     public void Reset()
@@ -532,7 +539,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             return;
         }
 
-        var best = direct;
+        var best = new TraversalCandidate(direct);
         var bestMode = FieldTravelMode.Direct;
         FieldAethernet.Node? bestDeparture = null;
         FieldAethernet.Node? bestInbound = null;
@@ -582,11 +589,11 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                     continue;
 
                 var walkFromInbound = Movement.HorizontalDistance(inbound.Position, finalDestination);
-                var cost = walkToDeparture + hopCost + walkFromInbound;
-                if (cost >= best)
+                var candidate = new TraversalCandidate(walkToDeparture + hopCost + walkFromInbound);
+                if (candidate.TotalCost >= best.TotalCost)
                     continue;
 
-                best = cost;
+                best = candidate;
                 bestMode = FieldTravelMode.WalkToAetheryte;
                 bestDeparture = departure;
                 bestInbound = inbound;
@@ -603,10 +610,10 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             && GeneralActions.ReturnReady())
         {
             var baseWalk = Movement.HorizontalDistance(camp.Position, finalDestination);
-            var cost = returnCost + baseWalk;
-            if (cost < best)
+            var returnCandidate = new TraversalCandidate(returnCost + baseWalk);
+            if (returnCandidate.TotalCost < best.TotalCost)
             {
-                best = cost;
+                best = returnCandidate;
                 bestMode = FieldTravelMode.Returning;
                 bestDeparture = camp;
                 bestInbound = camp;
@@ -618,11 +625,11 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                 {
                     if (inbound.IsBaseCamp)
                         continue;
-                    var candidate = returnCost + hopCost
-                                    + Movement.HorizontalDistance(inbound.Position, finalDestination);
-                    if (candidate >= best)
+                    var returnHopCandidate = new TraversalCandidate(returnCost + hopCost
+                        + Movement.HorizontalDistance(inbound.Position, finalDestination));
+                    if (returnHopCandidate.TotalCost >= best.TotalCost)
                         continue;
-                    best = candidate;
+                    best = returnHopCandidate;
                     bestMode = FieldTravelMode.Returning;
                     bestDeparture = camp;
                     bestInbound = inbound;
@@ -649,10 +656,11 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                         continue;
                     if (inbound.IsBaseCamp && !waitDeparture.IsBaseCamp)
                         continue;
-                    var candidate = walkToDeparture
-                                    + hopCost
-                                    + Movement.HorizontalDistance(inbound.Position, finalDestination);
-                    hypothetical = MathF.Min(hypothetical, candidate);
+                    var candidate = new TraversalCandidate(walkToDeparture
+                        + hopCost
+                        + Movement.HorizontalDistance(inbound.Position, finalDestination));
+                    if (candidate.TotalCost < hypothetical.TotalCost)
+                        hypothetical = candidate;
                 }
             }
 
@@ -666,20 +674,21 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                 {
                     if (inbound.IsBaseCamp)
                         continue;
-                    var candidate = returnCost + hopCost
-                                    + Movement.HorizontalDistance(inbound.Position, finalDestination);
-                    hypothetical = MathF.Min(hypothetical, candidate);
+                    var candidate = new TraversalCandidate(returnCost + hopCost
+                        + Movement.HorizontalDistance(inbound.Position, finalDestination));
+                    if (candidate.TotalCost < hypothetical.TotalCost)
+                        hypothetical = candidate;
                 }
             }
 
-            if (hypothetical < best)
+            if (hypothetical.TotalCost < best.TotalCost)
             {
                 _mode = FieldTravelMode.WaitingForLifestream;
                 _optionalLifestreamWaitStartedMs = Environment.TickCount64;
                 RouteDescription = "Lifestream復帰待ち（最大30秒）";
                 Svc.Log.Information(
                     $"[BozjaBuddyReborn] Nonurgent route can benefit from Lifestream; waiting up to 30 seconds " +
-                    $"before direct fallback (current={best:F0}y, hypothetical={hypothetical:F0}y).");
+                    $"before direct fallback (current={best.TotalCost:F0}y, hypothetical={hypothetical.TotalCost:F0}y).");
                 return;
             }
         }
@@ -702,7 +711,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
 
         Svc.Log.Information(
             $"[BozjaBuddyReborn] BOCCHI-style route selected: mode={bestMode}, direct={direct:F0}y, " +
-            $"planned={best:F0}y, departure={bestDeparture.Value.PlaceNameId}, inbound={bestInbound.Value.PlaceNameId}.");
+            $"planned={best.TotalCost:F0}y, departure={bestDeparture.Value.PlaceNameId}, inbound={bestInbound.Value.PlaceNameId}.");
     }
 
     private Vector3 ResolveNodePathPoint(FieldAethernet.Node node, float fallbackY)

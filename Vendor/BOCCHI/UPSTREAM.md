@@ -11,6 +11,7 @@ BOCCHI-derived navigation code in this directory is tracked against:
 The weekly workflow watches these BOCCHI source paths because they feed the vendored navigation model used by this fork:
 
 - `BOCCHI.Common/Data/Zones/NavigationApproach.cs`
+- `BOCCHI.Common/Data/Zones/Graph/Traversal/GraphTraverser.cs`
 - `BOCCHI.Common/Data/Zones/Graph/Traversal/WalkTeleportWalkCalculator.cs`
 - `BOCCHI.Common/Data/Zones/Graph/Traversal/ReturnTeleportWalkCalculator.cs`
 

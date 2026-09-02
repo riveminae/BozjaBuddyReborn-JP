@@ -20,18 +20,21 @@ public sealed class ConfigWindow : Window
     private readonly LostActionCatalog _lostActions;
     private readonly RegionResolver _regions;
     private readonly AggroAvoidance _avoidance;
+    private readonly SupplyManager _supplies;
 
     public ConfigWindow(
         Configuration config,
         LostActionCatalog lostActions,
         RegionResolver regions,
-        AggroAvoidance avoidance)
+        AggroAvoidance avoidance,
+        SupplyManager supplies)
         : base("Bozja Buddy Reborn - 設定###BozjaBuddyRebornConfig")
     {
         _config = config;
         _lostActions = lostActions;
         _regions = regions;
         _avoidance = avoidance;
+        _supplies = supplies;
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new Vector2(520, 420),
@@ -282,7 +285,54 @@ public sealed class ConfigWindow : Window
         DrawRole("ヒーラー", ref _config.HealerSurvivalHealFraction, ref _config.HealerSurvivalEmergencyFraction);
         DrawRole("DPS", ref _config.DpsSurvivalHealFraction, ref _config.DpsSurvivalEmergencyFraction);
 
+        ImGui.Separator();
+        ImGui.TextUnformatted("生存補給");
+        ImGui.TextColored(Grey,
+            "各項目が「補給開始」未満になると補給を予約し、Cacheから「目標数」まで戻す想定です。\n" +
+            "現在はCache↔Holsterの安全な転送手段が未確定のため、移動・在庫判定までを自動化しています。");
+
+        DrawSupply("Potion Kit", ref _config.SupplyPotionKitLow, ref _config.SupplyPotionKitTarget);
+        DrawSupply("Reraiser", ref _config.SupplyReraiserLow, ref _config.SupplyReraiserTarget);
+        DrawSupply("主回復", ref _config.SupplyMainHealLow, ref _config.SupplyMainHealTarget);
+        DrawSupply("Manawall", ref _config.SupplyEmergencyDefenseLow, ref _config.SupplyEmergencyDefenseTarget);
+
+        ImGui.Spacing();
+        if (_supplies.CacheUnavailableForInstanceCount > 0)
+            ImGui.TextColored(Yellow,
+                $"このインスタンスでCache在庫なしとして記録中: {_supplies.CacheUnavailableForInstanceCount}項目");
+        else
+            ImGui.TextColored(Grey, "このインスタンスでCache在庫なしの記録はありません。");
+
+        if (ImGui.SmallButton("Cache在庫なし記録をクリアして再確認"))
+            _supplies.ResetInstanceCacheAvailability();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("手動でCacheへ補充した後など、同じフィールドインスタンス内でも在庫を再確認したい場合に使用します。");
+
         return;
+
+        void DrawSupply(string label, ref int low, ref int target)
+        {
+            ImGui.PushID(label);
+            ImGui.SetNextItemWidth(180);
+            var nextLow = low;
+            if (ImGui.SliderInt("補給開始##low", ref nextLow, 0, 99))
+            {
+                low = Math.Clamp(nextLow, 0, 99);
+                target = Math.Max(target, low);
+                Save();
+            }
+            ImGui.SameLine();
+            ImGui.TextUnformatted(label);
+
+            ImGui.SetNextItemWidth(180);
+            var nextTarget = target;
+            if (ImGui.SliderInt("目標数##target", ref nextTarget, 0, 99))
+            {
+                target = Math.Clamp(nextTarget, low, 99);
+                Save();
+            }
+            ImGui.PopID();
+        }
 
         void DrawRole(string role, ref float heal, ref float emergency)
         {

@@ -112,7 +112,7 @@ public sealed class Plugin : IDalamudPlugin
         _socialRequests = new SocialRequestGuard(_config, () => _controller.Running);
 
         _mainWindow = new MainWindow(_config, _controller, _director, _navmesh, _link, _catalog) { IsOpen = false };
-        _configWindow = new ConfigWindow(_config, _lostActions, _regions, _aggroAvoidance)
+        _configWindow = new ConfigWindow(_config, _lostActions, _regions, _aggroAvoidance, _supplies)
         {
             IsOpen = false,
             OnIdleSpotsChanged = () => _controller.InvalidateIdleSpots(),

@@ -56,12 +56,49 @@ patch(
     "Plan drains previous probe",
 )
 
-# Normal Plan reset. Keep the established Return/Lifestream block contiguous for p9_04.
-patch(
-    """        _planningStart = Vector3.Zero;\n        _planningDeparturePoint = Vector3.Zero;\n        _planningStartedMs = 0;\n        _planningCancelSent = false;\n        _returnStartedMs = 0;\n""",
-    """        _planningStart = Vector3.Zero;\n        _planningDeparturePoint = Vector3.Zero;\n        _planningTerritory = 0;\n        _planningStartedMs = 0;\n        _planningCancelSent = false;\n        _planningDiscardResult = false;\n        _returnStartedMs = 0;\n""",
-    "Plan resets drain state",
-)
+# Normal Plan reset. p2_08 originally put the planning resets either immediately before the
+# Return/Lifestream block (validated source) or immediately after it (fresh baseline before p9_03
+# normalizes it). Accept both shapes and always emit the downstream-compatible contiguous block.
+plan_reset_new = """        _planningStart = Vector3.Zero;
+        _planningDeparturePoint = Vector3.Zero;
+        _planningTerritory = 0;
+        _planningStartedMs = 0;
+        _planningCancelSent = false;
+        _planningDiscardResult = false;
+        _returnStartedMs = 0;
+        _returnConfirmationSent = false;
+        _optionalLifestreamWaitStartedMs = 0;
+
+        var territory = Svc.ClientState.TerritoryType;
+"""
+plan_reset_normalized = """        _planningStart = Vector3.Zero;
+        _planningDeparturePoint = Vector3.Zero;
+        _planningStartedMs = 0;
+        _planningCancelSent = false;
+        _returnStartedMs = 0;
+        _returnConfirmationSent = false;
+        _optionalLifestreamWaitStartedMs = 0;
+
+        var territory = Svc.ClientState.TerritoryType;
+"""
+plan_reset_interleaved = """        _returnStartedMs = 0;
+        _returnConfirmationSent = false;
+        _optionalLifestreamWaitStartedMs = 0;
+        _planningStart = Vector3.Zero;
+        _planningDeparturePoint = Vector3.Zero;
+        _planningStartedMs = 0;
+        _planningCancelSent = false;
+
+        var territory = Svc.ClientState.TerritoryType;
+"""
+if plan_reset_normalized in text:
+    text = text.replace(plan_reset_normalized, plan_reset_new, 1)
+    print("Automation/FieldTravelRouter.cs: patched Plan reset drain state (normalized layout)")
+elif plan_reset_interleaved in text:
+    text = text.replace(plan_reset_interleaved, plan_reset_new, 1)
+    print("Automation/FieldTravelRouter.cs: patched Plan reset drain state (fresh p2_08 layout)")
+else:
+    raise RuntimeError("FieldTravelRouter.cs Plan planning reset layout is not recognized")
 
 # Remember the territory that owns the query. ClientState.TerritoryType can change while the task
 # is running; using the live territory would miss the cached key and fail to cancel the old probe.

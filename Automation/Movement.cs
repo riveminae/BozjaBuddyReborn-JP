@@ -25,7 +25,7 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
     private readonly NavmeshIpc _navmesh = navmesh;
     private readonly Configuration _config = config;
     private readonly AggroAvoidance _avoidance = avoidance;
-    private readonly FieldTravelRouter _fieldRouter = new(new LifestreamIpc(pluginInterface), config);
+    private readonly FieldTravelRouter _fieldRouter = new(new LifestreamIpc(pluginInterface), config, navmesh);
     private readonly ManualMovementYield _manualYield = new();
 
     private Vector3 _destination = Vector3.Zero;

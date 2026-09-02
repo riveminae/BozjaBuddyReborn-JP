@@ -67,6 +67,25 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
         return fallback;
     }
 
+    /// <summary>Return only a successfully measured cost; never starts a new query.</summary>
+    public bool TryGet(Vector3 from, Vector3 to, out float cost)
+    {
+        var now = Environment.TickCount64;
+        Poll(now);
+
+        if (_entries.TryGetValue(Key.For(from, to), out var entry)
+            && entry.Cost is { } measured
+            && now <= entry.ExpiresMs)
+        {
+            entry.LastAccessMs = now;
+            cost = measured;
+            return true;
+        }
+
+        cost = 0f;
+        return false;
+    }
+
     /// <summary>Observe completed tasks without scheduling a new query.</summary>
     public bool Poll()
     {

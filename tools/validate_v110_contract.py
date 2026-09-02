@@ -330,4 +330,8 @@ require(
     "test builds auto-increment 1.0.90.x",
 )
 
+# Keep the detailed supply/cache invariants in a focused module while running them in this same
+# pre-compile contract step. Importing the module executes its read-only static checks.
+import validate_supply_contract  # run dedicated supply invariants
+
 print("v1.1 static contract: PASS")

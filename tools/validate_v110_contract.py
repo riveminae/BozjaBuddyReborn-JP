@@ -37,6 +37,24 @@ def require_order(path: str, first: str, second: str, why: str) -> None:
 # JP fork visible-language invariant.
 require("Localization.cs", "public static bool Ja => true;", "visible UI is Japanese-fixed")
 
+# Lost Action settings are independent concerns. Party support must remain reachable even when
+# ordinary combat auto-use is disabled; the previous single page returned early and hid it.
+require(
+    "Windows/ConfigWindow.cs",
+    'ImGui.BeginTabBar("##bbr_lostaction_tabs")',
+    "Lost Action settings use nested category tabs",
+)
+require(
+    "Windows/ConfigWindow.cs",
+    'if (ImGui.BeginTabItem("パーティ支援"))',
+    "party-support settings have an independent subtab",
+)
+require(
+    "Windows/ConfigWindow.cs",
+    "DrawLostActionAutoUseSettings();",
+    "ordinary Lost Action auto-use is isolated in its own section",
+)
+
 # Q27A removed the user-facing flight option and v1.1 field travel must always be ground routing.
 # Configuration intentionally keeps a dead compatibility field so old 1.0.x JSON can deserialize
 # without losing shape during migration; the contract is that nothing in UI or Movement uses it.

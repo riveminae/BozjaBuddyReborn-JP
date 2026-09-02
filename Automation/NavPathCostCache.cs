@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Threading;
 using System.Threading.Tasks;
 using BozjaBuddyReborn.External;
 
@@ -31,7 +32,7 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
 
     /// <summary>
     /// Return a measured ground-path distance when cached; otherwise return fallback immediately.
-    /// When request=true, a missing entry may start one asynchronous vnavmesh query.
+    /// When request=true, a missing entry may start one asynchronous cancelable vnavmesh query.
     /// </summary>
     public float Estimate(uint territory, Vector3 from, Vector3 to, float fallback, bool request)
     {
@@ -52,17 +53,22 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
             if (now < existing.ExpiresMs)
                 return fallback; // recent failure; do not hammer the same route
 
+            existing.Cancellation?.Dispose();
             _entries.Remove(key);
         }
 
         if (!request || !_navmesh.MeshReady || PendingCount() >= MaxPending)
             return fallback;
 
-        var task = _navmesh.Pathfind(from, to, fly: false);
+        var cts = new CancellationTokenSource();
+        var task = _navmesh.PathfindCancelable(from, to, cts.Token, fly: false);
         if (task is null)
+        {
+            cts.Dispose();
             return fallback;
+        }
 
-        _entries[key] = new Entry(from, to, task, now);
+        _entries[key] = new Entry(from, to, task, cts, now);
         PruneIfNeeded();
         return fallback;
     }
@@ -86,6 +92,26 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
         return false;
     }
 
+    /// <summary>Cancel exactly one cost probe, never a movement path.</summary>
+    public bool Cancel(uint territory, Vector3 from, Vector3 to)
+    {
+        Poll(Environment.TickCount64);
+        if (!_entries.TryGetValue(Key.For(territory, from, to), out var entry)
+            || entry.Pending is null
+            || entry.Cancellation is null)
+            return false;
+
+        try
+        {
+            entry.Cancellation.Cancel();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <summary>Observe completed tasks without scheduling a new query.</summary>
     public bool Poll()
     {
@@ -96,11 +122,13 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
 
     public void Clear()
     {
-        // We deliberately do not try to cancel vnavmesh's task here: this wrapper bound only the
-        // ordinary Pathfind gate. Dropping references is enough; results from an old territory are
-        // never consumed after the dictionary is cleared.
         foreach (var entry in _entries.Values)
+        {
+            try { entry.Cancellation?.Cancel(); }
+            catch { /* best effort; these queries never own movement */ }
             ObserveFault(entry.Pending);
+            entry.Cancellation?.Dispose();
+        }
         _entries.Clear();
         Generation++;
     }
@@ -114,6 +142,9 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
                 continue;
 
             entry.Pending = null;
+            entry.Cancellation?.Dispose();
+            entry.Cancellation = null;
+
             if (pending.IsCompletedSuccessfully)
             {
                 var distance = Measure(entry.From, entry.To, pending.Result);
@@ -130,8 +161,8 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
                 ObserveFault(pending);
             }
 
-            // Empty/unreachable/faulted path: fail open to the horizontal estimate and retry only
-            // after a short cooldown. A transient pathfinder failure must never make a destination
+            // Empty/unreachable/faulted/cancelled path: fail open to the horizontal estimate and
+            // retry only after a short cooldown. A telemetry failure must never make a destination
             // appear infinitely expensive or strand the runner.
             entry.Cost = null;
             entry.ExpiresMs = now + FailureRetryMs;
@@ -170,7 +201,10 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
                 return;
 
             if (_entries.TryGetValue(key, out var entry))
+            {
                 ObserveFault(entry.Pending);
+                entry.Cancellation?.Dispose();
+            }
             _entries.Remove(key);
         }
     }
@@ -210,11 +244,17 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
         private static int Q(float value) => (int)MathF.Round(value / QuantizeYalms);
     }
 
-    private sealed class Entry(Vector3 from, Vector3 to, Task<List<Vector3>> pending, long now)
+    private sealed class Entry(
+        Vector3 from,
+        Vector3 to,
+        Task<List<Vector3>> pending,
+        CancellationTokenSource cancellation,
+        long now)
     {
         public Vector3 From { get; } = from;
         public Vector3 To { get; } = to;
         public Task<List<Vector3>>? Pending { get; set; } = pending;
+        public CancellationTokenSource? Cancellation { get; set; } = cancellation;
         public float? Cost { get; set; }
         public long ExpiresMs { get; set; }
         public long LastAccessMs { get; set; } = now;

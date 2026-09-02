@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
+using System.Threading.Tasks;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
 
@@ -40,6 +42,7 @@ public sealed class NavmeshIpc
 {
     private readonly ICallGateSubscriber<bool>? _isReady;
     private readonly ICallGateSubscriber<float>? _buildProgress;
+    private readonly ICallGateSubscriber<Vector3, Vector3, bool, Task<List<Vector3>>>? _pathfind;
     private readonly ICallGateSubscriber<Vector3, bool, bool>? _pathfindAndMoveTo;
     private readonly ICallGateSubscriber<Vector3, bool, float, bool>? _pathfindAndMoveCloseTo;
     private readonly ICallGateSubscriber<bool>? _pathfindInProgress;
@@ -54,6 +57,8 @@ public sealed class NavmeshIpc
     {
         _isReady = Bind<ICallGateSubscriber<bool>>(() => pi.GetIpcSubscriber<bool>("vnavmesh.Nav.IsReady"));
         _buildProgress = Bind<ICallGateSubscriber<float>>(() => pi.GetIpcSubscriber<float>("vnavmesh.Nav.BuildProgress"));
+        _pathfind = Bind<ICallGateSubscriber<Vector3, Vector3, bool, Task<List<Vector3>>>>(
+            () => pi.GetIpcSubscriber<Vector3, Vector3, bool, Task<List<Vector3>>>("vnavmesh.Nav.Pathfind"));
         _pathfindAndMoveTo = Bind<ICallGateSubscriber<Vector3, bool, bool>>(
             () => pi.GetIpcSubscriber<Vector3, bool, bool>("vnavmesh.SimpleMove.PathfindAndMoveTo"));
         _pathfindAndMoveCloseTo = Bind<ICallGateSubscriber<Vector3, bool, float, bool>>(
@@ -94,6 +99,26 @@ public sealed class NavmeshIpc
     public float BuildProgress
     {
         get { try { return _buildProgress?.InvokeFunc() ?? -1f; } catch { return -1f; } }
+    }
+
+    /// <summary>
+    /// Start a pathfinding-only query without moving the character. The returned task resolves to
+    /// vnavmesh waypoints and is the same IPC primitive BOCCHI/Ocelot uses for traversal costs.
+    /// A missing/unready navmesh returns null; asynchronous task faults remain the caller's to
+    /// observe because they occur after the IPC invocation has returned.
+    /// </summary>
+    public Task<List<Vector3>>? Pathfind(Vector3 from, Vector3 to, bool fly = false)
+    {
+        try
+        {
+            if (_pathfind?.HasFunction != true || !MeshReady)
+                return null;
+            return _pathfind.InvokeFunc(from, to, fly);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>True while the character is following a path.</summary>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import subprocess
@@ -26,9 +27,16 @@ def main() -> int:
         print("No packet patches to apply.")
         return 0
 
+    # GitHub's Windows runner can expose cp1252 to child Python processes. Several packet markers
+    # intentionally contain Japanese UI text, so one successful source patch must never turn into
+    # a failed CI run merely because the packet tries to describe that patch on stdout.
+    child_env = os.environ.copy()
+    child_env["PYTHONIOENCODING"] = "utf-8:backslashreplace"
+    child_env["PYTHONUTF8"] = "1"
+
     for script in scripts:
         print(f"::group::packet {script.name}")
-        subprocess.run([sys.executable, str(script)], cwd=ROOT, check=True)
+        subprocess.run([sys.executable, str(script)], cwd=ROOT, check=True, env=child_env)
         print("::endgroup::")
     return 0
 

@@ -30,6 +30,16 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
 
     public long Generation { get; private set; }
 
+    /// <summary>True while any telemetry-only path query has not finished cancelling/computing.</summary>
+    public bool HasPending
+    {
+        get
+        {
+            Poll(Environment.TickCount64);
+            return PendingCount() > 0;
+        }
+    }
+
     /// <summary>
     /// Return a measured ground-path distance when cached; otherwise return fallback immediately.
     /// When request=true, a missing entry may start one asynchronous cancelable vnavmesh query.
@@ -118,6 +128,31 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Request cancellation of every telemetry query but keep entries until their tasks actually
+    /// finish. This is what lets the router drain probes before issuing a real movement path.
+    /// </summary>
+    public bool CancelAllPending()
+    {
+        Poll(Environment.TickCount64);
+        var requested = false;
+        foreach (var entry in _entries.Values)
+        {
+            if (entry.Pending is null || entry.Pending.IsCompleted || entry.Cancellation is null)
+                continue;
+            try
+            {
+                entry.Cancellation.Cancel();
+                requested = true;
+            }
+            catch
+            {
+                // Another tick will observe completion/fault. Never escalate telemetry failure.
+            }
+        }
+        return requested;
     }
 
     /// <summary>Observe completed tasks without scheduling a new query.</summary>

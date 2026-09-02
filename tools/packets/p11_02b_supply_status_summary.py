@@ -1,9 +1,17 @@
 from __future__ import annotations
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CTRL = ROOT / "Automation/BozjaController.cs"
 MAIN = ROOT / "Windows/MainWindow.cs"
+
+# GitHub's Windows runner may expose a cp1252 stdout. Packet markers can contain Japanese UI text,
+# so force diagnostics to UTF-8 instead of failing after the source patch has already succeeded.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+except Exception:
+    pass
 
 
 def patch(path: Path, old: str, new: str, marker: str) -> None:

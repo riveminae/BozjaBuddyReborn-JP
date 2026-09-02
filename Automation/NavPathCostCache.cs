@@ -15,7 +15,7 @@ namespace BozjaBuddyReborn.Automation;
 /// one query at a time, returns the caller's horizontal fallback until the task finishes, and then
 /// reuses the measured path length for nearby endpoints.
 ///
-/// It never starts movement and never calls Path.MoveTo/SimpleMove; it is cost telemetry only.
+/// It never starts movement and never invokes movement-control IPC; it is cost telemetry only.
 /// </summary>
 internal sealed class NavPathCostCache(NavmeshIpc navmesh)
 {

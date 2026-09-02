@@ -113,6 +113,39 @@ require(
     "unknown inventory does not falsely block CE Commence",
 )
 
+# Supply diagnostics are evaluated on the framework tick and cached on the controller. ImGui must
+# never start its own MYC inventory read while drawing; the UI consumes only that cached snapshot.
+require(
+    "Automation/BozjaController.cs",
+    "public SupplyStatus SupplyStatus { get; private set; }",
+    "controller exposes cached survival supply status",
+)
+require(
+    "Automation/BozjaController.cs",
+    "SupplyStatus = _supplies.Evaluate();",
+    "supply status is refreshed on the framework tick",
+)
+require(
+    "Automation/BozjaController.cs",
+    "var supply = SupplyStatus;",
+    "supply arbitration reuses the cached framework-tick evaluation",
+)
+require(
+    "Windows/MainWindow.cs",
+    "var supply = _controller.SupplyStatus;",
+    "main UI reads controller-cached supply status",
+)
+require(
+    "Windows/MainWindow.cs",
+    "生存在庫: Potion Kit",
+    "main UI exposes survival stock at a glance",
+)
+forbid(
+    "Windows/MainWindow.cs",
+    "new LostItemBoxInventory",
+    "ImGui draw path must not read MYC inventory directly",
+)
+
 # Critical depletion interrupts ordinary skirmishes, but not an already-deployed CE. Remote CE
 # registration must also continue before recovery takes movement ownership. SupplyRecoveryDriver
 # is explicitly navigation+interaction only: no direct AgentMycItemBox memory manipulation.

@@ -25,6 +25,7 @@ public sealed class SupplyRecoveryDriver(Movement movement)
     private bool _cacheOpened;
 
     public bool Active { get; private set; }
+    public bool CacheOpened => _cacheOpened;
     public string Status { get; private set; } = string.Empty;
 
     /// <summary>

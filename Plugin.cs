@@ -322,6 +322,7 @@ public sealed class Plugin : IDalamudPlugin
         _movement.Stop();
         _director.Resync();
         _holster.Reset();
+        _supplies.ResetInstanceCacheAvailability();
         Mount.Reset();
         _controller.InvalidateIdleSpots();
 

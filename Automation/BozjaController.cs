@@ -429,6 +429,13 @@ public sealed class BozjaController
         var supply = SupplyStatus;
         if (supply.InventoryAvailable && supply.CriticalNoRecovery)
         {
+            if (!_supplies.CanAttemptCriticalRecovery(supply))
+            {
+                Stop("回復手段が完全に枯渇し、Lost Finds Cacheにも補充候補がないため停止しました。");
+                DiagnosticsRecorder.Warning("回復手段が完全に枯渇し、Cache在庫もないため自動周回を停止しました。");
+                return;
+            }
+
             RunCriticalSupplyRecovery(supply);
             return;
         }
@@ -438,7 +445,9 @@ public sealed class BozjaController
         // toward a fresh one, supply wins before another objective is selected. CE registration
         // continues above this block and a selected CE is still free to Commence immediately
         // because SignUpRunner only holds Commence for CriticalNoRecovery.
-        if (supply.InventoryAvailable && supply.NeedsRoutineRefill)
+        if (supply.InventoryAvailable
+            && supply.NeedsRoutineRefill
+            && _supplies.CanAttemptRoutineRefill(supply))
         {
             var finishingCurrentSkirmish = _lastObjective.Kind == ObjectiveKind.Fate
                                            && _committed
@@ -517,6 +526,18 @@ public sealed class BozjaController
         _supplyRecovery.Tick();
         Status = _supplyRecovery.Status;
 
+        if (_supplyRecovery.CacheOpened)
+        {
+            var cache = _supplies.InspectCacheAndLatch(supply);
+            if (cache.InventoryAvailable && !cache.CanRecoverCritical)
+            {
+                Svc.Log.Warning("[BozjaBuddyReborn] Critical recovery stock is absent from Lost Finds Cache for this field instance; stopping instead of retrying base trips.");
+                Stop("回復手段が完全に枯渇し、Lost Finds Cacheにも補充候補がないため停止しました。");
+                DiagnosticsRecorder.Warning("回復手段が完全に枯渇し、Cache在庫もないため自動周回を停止しました。");
+                return;
+            }
+        }
+
         if (supply.Reasons.Count > 0)
             Svc.Log.Debug($"[BozjaBuddyReborn] Critical supply recovery: {string.Join("; ", supply.Reasons)}.");
     }
@@ -539,6 +560,19 @@ public sealed class BozjaController
 
         _supplyRecovery.Tick(critical: false);
         Status = _supplyRecovery.Status;
+
+        if (_supplyRecovery.CacheOpened)
+        {
+            var cache = _supplies.InspectCacheAndLatch(supply);
+            if (cache.InventoryAvailable && !cache.CanImproveRoutine)
+            {
+                Svc.Log.Warning("[BozjaBuddyReborn] Requested routine survival stock is absent from Lost Finds Cache for this field instance; suppressing repeated base trips.");
+                _supplyRecovery.Reset();
+                Status = "Lost Finds Cacheにも現在不足している補給候補がないため、このインスタンスでは再補給を繰り返さず周回を続けます。";
+                DiagnosticsRecorder.Warning("Cache在庫がない補給候補をこのインスタンスでは再試行しません。");
+                return;
+            }
+        }
 
         if (supply.Reasons.Count > 0)
             Svc.Log.Debug($"[BozjaBuddyReborn] Routine supply recovery: {string.Join("; ", supply.Reasons)}.");

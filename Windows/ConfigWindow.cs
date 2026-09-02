@@ -696,6 +696,35 @@ public sealed class ConfigWindow : Window
 
     private void DrawLostActions()
     {
+        // These are independent features. In particular, party support must stay configurable
+        // even when ordinary combat auto-use is disabled; the old single long page returned early
+        // on AutoUseLostActions=false and accidentally hid the party-support controls as collateral.
+        if (!ImGui.BeginTabBar("##bbr_lostaction_tabs"))
+            return;
+
+        if (ImGui.BeginTabItem("Duty Actionバー"))
+        {
+            DrawDutyActionBarSettings();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("自動使用"))
+        {
+            DrawLostActionAutoUseSettings();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("パーティ支援"))
+        {
+            DrawPartySupport();
+            ImGui.EndTabItem();
+        }
+
+        ImGui.EndTabBar();
+    }
+
+    private void DrawDutyActionBarSettings()
+    {
         var click = _config.DutyActionClickToUse;
         if (ImGui.Checkbox("Duty Actionバーのクリックでアクションを使用する", ref click))
         {
@@ -719,9 +748,10 @@ public sealed class ConfigWindow : Window
             "初期値はONです。ゲーム画面上のオーバーレイとして表示します。\n" +
             "タイトルバーは残るため、背景を透明にしても\n" +
             "そこをドラッグして移動できます。");
+    }
 
-        ImGui.Separator();
-
+    private void DrawLostActionAutoUseSettings()
+    {
         var auto = _config.AutoUseLostActions;
         if (ImGui.Checkbox(Loc.T("Automatically use Lost Actions in combat", "戦闘中にロストアクションを自動使用する"), ref auto))
         {
@@ -735,7 +765,10 @@ public sealed class ConfigWindow : Window
             "Essenceを無駄に上書きしません。");
 
         if (!auto)
+        {
+            ImGui.TextColored(Grey, "自動使用はOFFです。パーティ支援とDuty Actionバー設定には影響しません。");
             return;
+        }
 
         ImGui.Spacing();
 
@@ -796,9 +829,6 @@ public sealed class ConfigWindow : Window
                 Save();
             }
 
-            // An action ticked while the press switch is off does nothing at all, which is a
-            // state the user should be able to see rather than infer from the absence of an
-            // effect - the whole failure this build exists to fix.
             if (selected && !entry.IsItem && !fire)
             {
                 ImGui.SameLine();
@@ -807,8 +837,6 @@ public sealed class ConfigWindow : Window
         }
 
         ImGui.EndChild();
-
-        DrawPartySupport();
     }
 
     /// <summary>

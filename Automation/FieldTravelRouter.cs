@@ -67,8 +67,10 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
     // route and only while this plugin's cancelable Nav.Pathfind query is alive.
     private Vector3 _planningStart;
     private Vector3 _planningDeparturePoint;
+    private uint _planningTerritory;
     private long _planningStartedMs;
     private bool _planningCancelSent;
+    private bool _planningDiscardResult;
 
     private const float GoalIdentityRadius = 10f;
     private const float AethernetReadyRadius = 15f;
@@ -168,6 +170,8 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
 
     public void Reset()
     {
+        _pathCosts.CancelAllPending();
+
         _goal = Vector3.Zero;
         _goalRange = 0;
         _departure = null;
@@ -182,8 +186,10 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         _fallbackForGoal = false;
         _planningStart = Vector3.Zero;
         _planningDeparturePoint = Vector3.Zero;
+        _planningTerritory = 0;
         _planningStartedMs = 0;
         _planningCancelSent = false;
+        _planningDiscardResult = false;
         RouteDescription = "直接移動";
     }
 
@@ -204,8 +210,25 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
 
         if (_mode == FieldTravelMode.Planning)
         {
-            var territory = Svc.ClientState.TerritoryType;
             var now = Environment.TickCount64;
+
+            if (_planningDiscardResult)
+            {
+                _pathCosts.CancelAllPending();
+                if (_pathCosts.HasPending)
+                {
+                    RouteDescription = "旧実経路コスト計算の終了待ち";
+                    return new FieldTravelDirective(Vector3.Zero, 0, true, _mode, RouteDescription);
+                }
+
+                _planningDiscardResult = false;
+                Plan(me.Position, finalDestination, finalRange, waitForOptionalLifestream, allowPathCostWait: true);
+                return Resolve(finalDestination, finalRange, waitForOptionalLifestream);
+            }
+
+            var territory = _planningTerritory;
+            if (territory == 0)
+                territory = Svc.ClientState.TerritoryType;
 
             if (_pathCosts.TryGet(territory, _planningStart, _planningDeparturePoint, out var measured))
             {
@@ -452,6 +475,24 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         bool waitForOptionalLifestream = false,
         bool allowPathCostWait = true)
     {
+        if (_pathCosts.HasPending)
+        {
+            _pathCosts.CancelAllPending();
+            _goal = finalDestination;
+            _goalRange = finalRange;
+            _departure = null;
+            _inbound = null;
+            _mode = FieldTravelMode.Planning;
+            _planningStart = Vector3.Zero;
+            _planningDeparturePoint = Vector3.Zero;
+            _planningTerritory = 0;
+            _planningStartedMs = Environment.TickCount64;
+            _planningCancelSent = true;
+            _planningDiscardResult = true;
+            RouteDescription = "旧実経路コスト計算の終了待ち";
+            return;
+        }
+
         _goal = finalDestination;
         _goalRange = finalRange;
         _departure = null;
@@ -462,8 +503,10 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         _teleportAttempts = 0;
         _planningStart = Vector3.Zero;
         _planningDeparturePoint = Vector3.Zero;
+        _planningTerritory = 0;
         _planningStartedMs = 0;
         _planningCancelSent = false;
+        _planningDiscardResult = false;
         _returnStartedMs = 0;
         _returnConfirmationSent = false;
         _optionalLifestreamWaitStartedMs = 0;
@@ -512,8 +555,10 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                     _departure = probeDeparture;
                     _planningStart = start;
                     _planningDeparturePoint = probePoint;
+                    _planningTerritory = territory;
                     _planningStartedMs = Environment.TickCount64;
                     _planningCancelSent = false;
+                    _planningDiscardResult = false;
                     RouteDescription = "vnavmeshで実経路コストを計算中";
                     return;
                 }

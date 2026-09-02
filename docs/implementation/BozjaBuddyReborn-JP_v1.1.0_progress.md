@@ -3,8 +3,8 @@
 最終更新: 2026-09-02  
 branch: `feat/bocchi-navigation`  
 main baseline: `038faf8d70b2aea7189143f7fd46a8c135cb0484`  
-最新CI検証commit: `c4b77410b724202125e7dbb2a2c5360f7690ebdf`  
-最新CI検証Test version: `1.0.90.114`  
+最新CI検証commit: `04c701acc45e0f8d9c6de0d3810f427f40e330db`  
+最新CI検証Test version: `1.0.90.151`  
 Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 
 ## ステータス定義
@@ -20,10 +20,13 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 
 ## 現在地点の重要事項
 
-- Debug / Release build、static contract、test ZIP、manifest version検証、test repository publishまでCI成功済み。
+- Debug / Release build、packet冪等性検証、static contract、日本語UI audit、test ZIP、manifest version検証、test repository publishまでCI成功済み。
 - Test版はGitHub Actions run numberから毎回異なる `1.0.90.x` を生成するため、同一versionのZIP差し替えではなくDalamudが更新判定できる形になった。
-- `tools/validate_v110_contract.py` をCIへ組み込み、CE安全クリック、mounted invariant、補給優先順位、依存復旧、敵ランク安全側判定、AGPL/provenance等の設計不変条件をcompile前に検査する。
-- BOCCHI-style Direct / Aethernet / Return 経路は実装済み。歩行コストだけはfull BOCCHI graphではなくBBR adapterの水平距離近似を残している。
+- `tools/packets/run_all.py` はWindows runnerでもUTF-8固定で実行し、CIではpacketを2回連続適用して2回目のGit treeが完全不変であることを検査する。1回目だけ成功するbrittle packetをcompile前に検出できる。
+- `tools/validate_v110_contract.py` をCIへ組み込み、CE安全クリック、mounted invariant、補給優先順位、依存復旧、敵ランク安全側判定、BOCCHI経路計測の安全性、AGPL/provenance等の設計不変条件をcompile前に検査する。
+- BOCCHI-style Direct / Aethernet / Return 経路は実装済み。出発AethernetはBOCCHIと同じ `base camp → 45y graph snap → nearest node` で1ノードに解決する。
+- 長距離Aethernet候補では `vnavmesh.Nav.PathfindCancelable` を使って出発ノードまでの実地上経路長を非同期計測する。最大1本・最大750msで、遅い計測はcancel完了を待ってから水平距離fallbackへ戻す。Stop/目的地変更時も古い計測をdrainしてから新しい移動を開始する。
+- inbound Aethernet→最終目的地のコストはfull BOCCHI zone graphをvendorしていないため、現在も水平距離近似。したがってP2-01はPARTIALのまま。
 - Lifestreamはイベント移動中に欠落すれば即徒歩fallback、待機地点/補給など非緊急移動では最大30秒復帰待ち。
 - 到達不能スカーミッシュは同一spawnだけBlacklistし、FATE消滅後に自動解除する。
 - 手動移動はWASD/矢印および左右マウス同時押しを検出し、3秒quietになるまでvnavmeshをyieldする。
@@ -34,11 +37,13 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 - `SupplyManager` のlow-watermark判定をControllerへ配線済み。**CriticalNoRecoveryならスカーミッシュを即中断**、通常不足なら**到着済みの現在スカーミッシュだけ完走してから**Lost Finds Cacheへ向かう。
 - CE参加申請は補給移動より先に継続する。CE当選後はCriticalNoRecoveryの場合だけCommenceを保留し、それ以外は即戦闘突入する。既に開始済みのCEは補給より常に優先する。
 - `SupplyRecoveryDriver` はBOCCHI/Lifestream経路で拠点へ戻り、実際のLost Finds Cacheを開くところまで自動化済み。server-backed在庫の転送は行わない。
+- 生存在庫評価はframework tickで1回だけ行いControllerへcacheする。MainWindowは `Potion Kit / Reraiser / 主回復 / Manawall` と補給状態を表示し、ImGui描画中にMYC inventory memoryを直接読まない。
 - Lost Finds Cache/Holsterの読み取り・target planning・low-watermark評価は実装済み。
 - **最大の残blockerはCache↔Holsterの正規サーバー転送手段**。公開ClientStructs/公開Dalamud実装から確定できず、推測callbackや直接memory writeは行わない。
 - `DiagnosticsRecorder` は直近state/status 32件 / warning 16件をprivacy-safeに保持し、診断コピーへ含める。
 - config migration失敗時は元configをtimestamp付きJSONへbackupし、安全なdefaultへfallbackする。
-- UIは日本語固定。Runtime内部の英語メッセージはログ/診断用に保持し、UI表示時だけ日本語化する層を追加済み。
+- UIは日本語固定。設定画面はカテゴリ整理済みで、ロストアクション配下も `Duty Actionバー / 自動使用 / パーティ支援` を独立subtab化した。自動使用OFFでもパーティ支援設定は消えない。
+- 直接表示される英語ImGui literalは `tools/audit_visible_japanese.py` のstrict CI gateで新規混入を防止する。Runtime内部の英語メッセージはログ/診断用に保持し、UI表示時だけ日本語化する。
 - AGPL本体、元BBR MIT、BOCCHI、KanoNoUta BOCCHI maintenance fork、Ocelot MIT、ECommons MITのprovenance/noticeを整理済み。
 
 ## Task Packet一覧
@@ -48,7 +53,7 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 | P0-01 | DONE | baseline audit + build確認 | Debug/Release/package/publish成功 |
 | P1-01 | DONE | AGPL/notice検証 | root AGPL、BBR/BOCCHI/KanoNoUta fork/Ocelot/ECommons provenanceを明記 |
 | P1-02 | DONE | Test version 1.0.90.x統一 | workflow run numberによる自動version、manifest/assembly/package同期 |
-| P2-01 | PARTIAL | Vendored BOCCHI traversal model | BOCCHI constants/Return semanticsをvendor化。full graph importは未完 |
+| P2-01 | PARTIAL | Vendored BOCCHI traversal model | BOCCHI constants/Return/single-departure規則をvendor化。出発walkはvnavmesh実経路長を計測。inbound→goalのfull graph costは未導入 |
 | P2-02 | DONE | ReturnTeleportWalk | `FieldTravelRouter.Returning`、Return確認、base→Aethernet→walk実装済み |
 | P2-03 | DONE | route retry / blacklist | 3回stall後spawn blacklist、FATE消滅時prune、Start時clear |
 | P2-04 | DONE | manual movement yield | WASD/矢印/左右マウス同時押し + 3秒quiet window |
@@ -79,12 +84,12 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 | P10-01 | DONE | social request識別 | Party agent強識別 + prompt subject/request二重判定 |
 | P10-02 | DONE | strict social reject | Running中のみ識別済みsocial requestをNo。generic YesNoは触らない |
 | P10-03 | WAITING_LIVE_TEST | false positive確認 | 最終ゲーム表示差分のみ未確認 |
-| P11-01 | PARTIAL | UI tab再編 | 日本語UI拡張済み。最終カテゴリ整理は残る |
-| P11-02 | DONE | main status | route/CE/dependency/survival/blacklist表示を拡張済み |
+| P11-01 | DONE | UI tab再編 | top-levelカテゴリ + Lost Action独立subtabまで整理済み |
+| P11-02 | DONE | main status | route/CE/dependency/survival supply/blacklist表示を拡張済み |
 | P11-03 | DONE | DiagnosticsRecorder | state/status 32件 + warning 16件 ring buffer |
 | P11-04 | DONE | clipboard diagnostics | 個人情報を除外した診断コピー実装済み |
 | P11-05 | DONE | debug world overlay | goal/Aethernet route/danger cone+ring描画、default OFF |
-| P11-06 | PARTIAL | visible English全日本語化 | primary/main/runtime/multibox/duty UIを日本語化。残存literal最終走査のみ |
+| P11-06 | DONE | visible English全日本語化 | 主要画面/runtime/multibox/duty/relic/settingsを日本語化し、direct ImGui literalのstrict CI auditを追加 |
 | P12-01 | DONE | config migration | schema v4 migration + threshold/nav normalization |
 | P12-02 | DONE | character state split | Relic farm targetを`PlayerState.ContentId`単位で保存 |
 | P12-03 | DONE | migration failure backup | raw config backup + notification + safe defaults fallback |
@@ -101,11 +106,13 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 ### latest validated baseline
 
 - workflow: `Build v1.1 test repository`
-- run: `33528892610` / run number `114`
-- validated bot commit: `c4b77410b724202125e7dbb2a2c5360f7690ebdf`
-- version: `1.0.90.114`
-- packet application: pass
+- run: `33578822721` / run number `151`
+- validated bot commit: `04c701acc45e0f8d9c6de0d3810f427f40e330db`
+- version: `1.0.90.151`
+- first packet application: pass
+- second packet replay / Git tree idempotency: pass
 - static v1.1 contract: pass
+- visible Japanese UI audit: pass
 - diff check: pass
 - restore: pass
 - Debug build: pass
@@ -128,9 +135,17 @@ Current user commits after that validation are intentionally pushed frequently; 
 - `AgentMycItemBox.ItemBoxData` からCache/HolsterのActionId/Countはread可能。
 - ClientStructsに公開transfer member functionは無い。
 - `AgentMycItemBag` / `MYCItemBox` / `MYCItemBag` / `MYCItemBagTrade` の存在は確認済みだが、正規transfer callback/functionの引数契約は未確定。
-- `kaleidocli/BozjaBuddy` のMYCItemBox/MYCItemBagTrade実装も確認したが、自動転送callbackの根拠は得られなかった。
+- `kaleidocli/BozjaBuddy` のMYCItemBox/MYCItemBagTrade実装も再確認したが、フィルタ/overlay/在庫read中心で、自動転送callbackの根拠は得られなかった。
 - server-backed countへの直接writeは禁止。
 - `MycItemBoxCallbackProbe` は実ゲーム自身のcallbackを採取するための診断手段として残す。
+
+### BOCCHI / vnavmesh path cost
+
+- BOCCHI/Ocelotが利用する `vnavmesh.Nav.Pathfind` / `vnavmesh.Nav.PathfindCancelable` の公開IPC契約を確認済み。
+- BBRでは実移動とは別のbounded telemetryとして利用し、framework tickを同期blockしない。
+- 同時queryは最大1、待機は最大750ms。timeout/Stop/対象変更ではcancel→Task終了確認→replanの順にする。
+- Cache keyはterritoryを含み、別エリア同座標の測定値を再利用しない。
+- full BOCCHI graph serviceはvendorしていないため、現時点ではdeparture walkのみ実経路長、inbound→goalは水平距離近似。
 
 ### Enemy rank
 
@@ -140,12 +155,11 @@ Current user commits after that validation are intentionally pushed frequently; 
 
 ユーザー確認/実機確認を要求せず、以下を順次進める。
 
-1. P11-06 残存visible English literal最終走査 + CI audit
-2. P11-01 UIカテゴリ最終整理
-3. P5-01 Cache transferの公開根拠探索を継続
-4. Cache側在庫不足のread-only診断・loop防止設計をtransfer executorと独立して追加
-5. RC前static acceptance checklistを拡張
-6. 実機依存項目は最後にまとめて確認
+1. P5-01 Cache transferの公開根拠探索を継続
+2. Cache側在庫不足のread-only診断・同一instanceでの再補給loop防止をtransfer executorと独立して追加
+3. P2-01 inbound→goalの実経路コスト化が過度なPathfind負荷なしで可能か設計・検証
+4. RC前static acceptance checklistを拡張
+5. 実機依存項目は最後にまとめて確認
 
 ## 実機検証方針
 

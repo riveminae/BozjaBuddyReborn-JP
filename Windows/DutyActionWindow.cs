@@ -185,7 +185,7 @@ public sealed class DutyActionWindow : Window
     {
         using var _ = ImRaiiId(peer.Name);
 
-        ImGui.TextColored(peer.IsSelf ? Green : Grey, peer.IsSelf ? (Loc.Ja ? $"{peer.Name}（自分）" : $"{peer.Name} (you)") : peer.Name);
+        ImGui.TextColored(peer.IsSelf ? Green : Grey, peer.IsSelf ? $"{peer.Name}（自分）" : peer.Name);
 
         for (var i = 0; i < DutyActions.SlotCount; i++)
         {

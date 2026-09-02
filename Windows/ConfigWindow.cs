@@ -746,22 +746,20 @@ public sealed class ConfigWindow : Window
             Save();
         }
         ImGui.TextColored(Yellow,
-            "Off by default, and worth reading before you turn it on.\n" +
+            "初期値はOFFです。有効にする前に以下を確認してください。\n" +
             "\n" +
-            "The two kinds of holster entry do not cost the same. ITEMS - every Essence, the potion,\n" +
-            "ether and medi kits, Dynamis Dice, Reraiser, Lodestone, Light Curtain, Resistance Elixir\n" +
-            "- are consumed the moment the box above uses them, and always have been. ACTIONS - Lost\n" +
-            "Cure, Lost Font of Power, the Banners, and so on - are only LOADED into a duty slot by\n" +
-            "that same call, and until this build nothing pressed the slot, so ticking the box above\n" +
-            "has never spent an action charge however long it was left on.\n" +
+            "Holsterには消費方法が異なる2種類があります。アイテム型（Essence、各種Potion/Ether/\n" +
+            "Medi Kit、Dynamis Dice、Reraiser、Lodestone、Light Curtain、Resistance Elixir等）は、\n" +
+            "Holsterから使用した時点でそのまま消費されます。アクション型（Lost Cure、\n" +
+            "Lost Font of Power、各種Banner等）は、HolsterからDuty Action枠へロードしただけでは\n" +
+            "チャージを消費しません。\n" +
             "\n" +
-            "This switch is the missing press. Turning it on means every action you tick below is\n" +
-            "actually fired, roughly once per cooldown window, for as long as you are in combat in an\n" +
-            "engagement - so the toggle above starts costing farmed charges it did not cost before.\n" +
-            "Leaving it off keeps that exactly as it was: items are used, actions are left alone.\n" +
+            "このスイッチをONにすると、下で選択したアクション型もDuty Actionとして実際に発動し、\n" +
+            "戦闘中は設定した使用間隔ごとにチャージを消費します。OFFのままなら従来どおり、\n" +
+            "アイテム型だけを使用し、アクション型は発動しません。\n" +
             "\n" +
-            "It drives duty slot 1 when it has to load, so a loadout parked there can be replaced. An\n" +
-            "action already sitting in either slot is pressed where it stands and nothing is moved.");
+            "ロードが必要な場合はDuty Action 1を使用するため、そこに置いていたロードアウトが\n" +
+            "置き換わることがあります。既にどちらかの枠にあるアクションはその枠から発動します。");
 
         ImGui.Spacing();
 
@@ -775,7 +773,7 @@ public sealed class ConfigWindow : Window
 
         ImGui.Separator();
         ImGui.TextColored(Grey,
-            "自動使用を許可する項目を選択します。「item」はHolsterから直接消費される種類です。\n" +
+            "自動使用を許可する項目を選択します。「アイテム」はHolsterから直接消費される種類です。\n" +
             "Duty Action発動設定とは独立して消費されます。");
 
         if (!ImGui.BeginChild("##bbr_lostactions", new Vector2(0, 300), true))
@@ -787,7 +785,7 @@ public sealed class ConfigWindow : Window
         foreach (var entry in _lostActions.All)
         {
             var selected = _config.AutoLostActions.Contains(entry.RowId);
-            var kind = entry.IsItem ? ", item" : string.Empty;
+            var kind = entry.IsItem ? ", アイテム" : string.Empty;
             var label = $"{entry.Name}  (重量 {entry.Weight}{kind})##la{entry.RowId}";
             if (ImGui.Checkbox(label, ref selected))
             {
@@ -836,11 +834,10 @@ public sealed class ConfigWindow : Window
             Save();
         }
         ImGui.TextColored(Grey,
-            "Someone with no buff at all is always served first. This is the second pass: top up the\n" +
-            "most-expired member once they drop below this much of the total. Lost Bravery runs 600s,\n" +
-            "so 20% is the last two minutes. The totals are read out of the game's own tooltip text -\n" +
-            "an action whose duration is not in the data is never topped up, only given to people who\n" +
-            "have nothing.");
+            "バフが付いていないメンバーを最優先します。その後、残り効果時間がこの割合を下回った\n" +
+            "メンバーを、残り時間が短い順に更新します。Lost Braveryは600秒なので、20%なら\n" +
+            "残り2分未満が更新対象です。総効果時間はゲーム内Tooltipから取得します。\n" +
+            "効果時間を取得できないアクションは自動更新せず、未付与のメンバーにだけ使用します。");
 
         ImGui.Spacing();
 
@@ -852,8 +849,8 @@ public sealed class ConfigWindow : Window
             Save();
         }
         ImGui.TextColored(Grey,
-            "Healing goes to the LOWEST-HP member first, re-decided before every cast. This floor is\n" +
-            "what stops \"lowest\" meaning \"whoever is at 99%\" - there is always a lowest.");
+            "回復は毎回の使用直前に判定し、HP割合が最も低いメンバーを優先します。\n" +
+            "この閾値を設けることで、全員がほぼ満タンのときに不要な回復を消費しません。");
 
         ImGui.Spacing();
 
@@ -873,9 +870,9 @@ public sealed class ConfigWindow : Window
             Save();
         }
         ImGui.TextColored(Grey,
-            "Slot 2 by default, because auto-use drives slot 1 and two things reloading one slot\n" +
-            "underneath each other would spend the whole fight fighting. An action already sitting in\n" +
-            "either slot is used where it is, so this only matters when something has to be loaded.");
+            "初期値はDuty Action 2です。通常の自動使用がDuty Action 1を使うため、同じ枠を\n" +
+            "互いにロードし直して競合するのを避けます。既にどちらかの枠にあるアクションは\n" +
+            "その枠から使用するため、この設定は新しくロードする場合だけ影響します。");
 
         ImGui.Separator();
         ImGui.TextColored(Grey,

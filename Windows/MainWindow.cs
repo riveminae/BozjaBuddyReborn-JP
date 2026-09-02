@@ -123,6 +123,22 @@ public sealed class MainWindow : Window
             var me = Svc.Objects.LocalPlayer;
             if (me != null && me.MaxHp > 0)
                 ImGui.TextColored(Grey, $"HP: {me.CurrentHp * 100f / me.MaxHp:F0}% / ロール: {SurvivalPolicy.CurrentRole()}");
+
+            var supply = _controller.SupplyStatus;
+            if (supply.InventoryAvailable)
+            {
+                var supplyColour = supply.CriticalNoRecovery ? Red : supply.NeedsRoutineRefill ? Yellow : Green;
+                var supplyState = supply.CriticalNoRecovery
+                    ? "緊急補給が必要"
+                    : supply.NeedsRoutineRefill ? "補給が必要" : "正常";
+                ImGui.TextColored(supplyColour,
+                    $"生存在庫: Potion Kit {supply.PotionKits} / Reraiser {supply.Reraisers} / " +
+                    $"主回復 {supply.MainHealUnits} / Manawall {supply.EmergencyDefenseUnits}（{supplyState}）");
+            }
+            else
+            {
+                ImGui.TextColored(Grey, "生存在庫: 読み取り待ち");
+            }
         }
 
         // The Lost Action driver gets its own line only while it has something to say. Its presses
@@ -260,7 +276,7 @@ public sealed class MainWindow : Window
         var mettle = FieldState.Mettle;
         var needed = FieldState.MettleNeeded;
 
-        ImGui.TextUnformatted(Loc.Ja ? $"レジスタンスランク {rank}" : $"Resistance Rank {rank}");
+        ImGui.TextUnformatted($"レジスタンスランク {rank}");
         ImGui.SameLine();
         if (needed > 0)
         {
@@ -559,7 +575,7 @@ public sealed class MainWindow : Window
             // is a config value and IS read back before each heartbeat write.)
             ImGui.TextUnformatted(
                 $"最終送信 - AI: {Age(avoidance.SecondsSinceSent)}, " +
-                $"rotation: {_director.Rotation.CurrentMode?.ToString() ?? "未設定"} " +
+                $"ローテーション: {_director.Rotation.CurrentMode?.ToString() ?? "未設定"} " +
                 $"{Age(_director.Rotation.SecondsSinceSent)}");
             if (ImGui.Button("回避専用設定を再適用"))
                 avoidance.ApplyAvoidanceOnlyConfig(force: true);
@@ -581,7 +597,7 @@ public sealed class MainWindow : Window
 
         static void Row(string name, bool ok, string note)
         {
-            ImGui.TextColored(ok ? Green : Red, ok ? "OK  " : "未接続  ");
+            ImGui.TextColored(ok ? Green : Red, ok ? "正常  " : "未接続  ");
             ImGui.SameLine();
             ImGui.TextUnformatted(name);
             ImGui.SameLine();

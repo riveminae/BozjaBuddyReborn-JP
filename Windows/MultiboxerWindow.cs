@@ -160,7 +160,7 @@ public sealed class MultiboxerWindow : Window
             // sitting in AwaitingSelection is working correctly, not stuck.
             if (_signUps.Active)
             {
-                ImGui.TextColored(Grey, Loc.Ja ? $"   フェーズ: {Loc.Phase(_signUps.Phase)}" : $"   phase: {_signUps.Phase}");
+                ImGui.TextColored(Grey, $"   フェーズ: {Loc.Phase(_signUps.Phase)}");
                 ImGui.TextColored(Grey,
                     _signUps.LastButtons.Count == 0
                         ? "   ボズヤファインダーのボタンを検出できません"
@@ -282,7 +282,7 @@ public sealed class MultiboxerWindow : Window
                 : lo.Target == Loadout.AllBoxes ? "→ 全クライアント" : $"→ {lo.Target}");
             ImGui.TextColored(Grey, $"   1: {_catalog.Name(lo.Slot0)}    2: {_catalog.Name(lo.Slot1)}");
             if (lo.Essence != 0)
-                ImGui.TextColored(Grey, $"   Essence: {_catalog.Name(lo.Essence)}{EssenceNote(lo.Essence)}");
+                ImGui.TextColored(Grey, $"   エッセンス: {_catalog.Name(lo.Essence)}{EssenceNote(lo.Essence)}");
 
             DrawApplyButton(lo);
 

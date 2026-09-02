@@ -136,6 +136,9 @@ public sealed class BozjaController
     public bool LifestreamAvailable => _movement.LifestreamAvailable;
     public int RouteBlacklistCount => _selector.RouteBlacklistedFateCount;
 
+    /// <summary>Last framework-tick survival inventory evaluation; UI reads this cache only.</summary>
+    public SupplyStatus SupplyStatus { get; private set; } = new(false, false, false, 0, 0, 0, 0, []);
+
     /// <summary>Live engagement snapshot from the last tick, for the UI.</summary>
     public IReadOnlyList<CeSnapshot> Engagements { get; private set; } = [];
 
@@ -405,6 +408,11 @@ public sealed class BozjaController
         // box wins the draw. This is intentionally before objective selection.
         TickAutomaticCeRegistration();
 
+        // Cache supply on the framework tick for both arbitration and UI. This deliberately
+        // happens before live-CE dispatch so the main window remains informative during a CE; the
+        // CE branch below still returns before any refill decision can run.
+        SupplyStatus = _supplies.Evaluate();
+
         // --- already registered and fighting -------------------------------
         var current = CriticalEngagements.Current(_catalog);
         if (current is { } ce && ce.IsLive)
@@ -418,7 +426,7 @@ public sealed class BozjaController
         // self-heal is the one supply state severe enough to abandon the current skirmish
         // immediately. Registration keeps running above this block; if the lottery selects this
         // box, SignUpRunner independently holds Commence until the same supply predicate clears.
-        var supply = _supplies.Evaluate();
+        var supply = SupplyStatus;
         if (supply.InventoryAvailable && supply.CriticalNoRecovery)
         {
             RunCriticalSupplyRecovery(supply);

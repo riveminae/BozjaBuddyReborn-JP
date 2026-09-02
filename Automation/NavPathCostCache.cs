@@ -33,12 +33,12 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
     /// Return a measured ground-path distance when cached; otherwise return fallback immediately.
     /// When request=true, a missing entry may start one asynchronous vnavmesh query.
     /// </summary>
-    public float Estimate(Vector3 from, Vector3 to, float fallback, bool request)
+    public float Estimate(uint territory, Vector3 from, Vector3 to, float fallback, bool request)
     {
         var now = Environment.TickCount64;
         Poll(now);
 
-        var key = Key.For(from, to);
+        var key = Key.For(territory, from, to);
         if (_entries.TryGetValue(key, out var existing))
         {
             existing.LastAccessMs = now;
@@ -68,12 +68,12 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
     }
 
     /// <summary>Return only a successfully measured cost; never starts a new query.</summary>
-    public bool TryGet(Vector3 from, Vector3 to, out float cost)
+    public bool TryGet(uint territory, Vector3 from, Vector3 to, out float cost)
     {
         var now = Environment.TickCount64;
         Poll(now);
 
-        if (_entries.TryGetValue(Key.For(from, to), out var entry)
+        if (_entries.TryGetValue(Key.For(territory, from, to), out var entry)
             && entry.Cost is { } measured
             && now <= entry.ExpiresMs)
         {
@@ -200,9 +200,10 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
             _ = task.Exception;
     }
 
-    private readonly record struct Key(int FromX, int FromY, int FromZ, int ToX, int ToY, int ToZ)
+    private readonly record struct Key(uint Territory, int FromX, int FromY, int FromZ, int ToX, int ToY, int ToZ)
     {
-        public static Key For(Vector3 from, Vector3 to) => new(
+        public static Key For(uint territory, Vector3 from, Vector3 to) => new(
+            territory,
             Q(from.X), Q(from.Y), Q(from.Z),
             Q(to.X), Q(to.Y), Q(to.Z));
 

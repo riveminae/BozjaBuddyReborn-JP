@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using BozjaBuddyReborn.External;
 using BozjaBuddyReborn.Game;
@@ -108,15 +109,23 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             : NavigationConstants.ReturnCost;
 
         var best = direct;
-        if (_config.UseAethernetTravel && _lifestream.Available && nodes.Count >= 2)
+        var resolvedDeparture = ResolveDepartureNode(nodes, start);
+        if (_config.UseAethernetTravel && _lifestream.Available && nodes.Count >= 2
+            && resolvedDeparture is { } departure)
         {
-            foreach (var departure in nodes)
+            var walkToDeparture = Movement.HorizontalDistance(start, departure.Position);
             foreach (var inbound in nodes)
             {
                 if (departure.CustomAetheryteId == inbound.CustomAetheryteId)
                     continue;
+
+                // BOCCHI leaves field -> base-camp travel to ReturnTeleportWalk rather than
+                // paying an aethernet hop back to the base shard.
+                if (inbound.IsBaseCamp && !departure.IsBaseCamp)
+                    continue;
+
                 best = MathF.Min(best,
-                    Movement.HorizontalDistance(start, departure.Position)
+                    walkToDeparture
                     + hopCost
                     + Movement.HorizontalDistance(inbound.Position, destination));
             }
@@ -425,26 +434,27 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
 
         // Walk -> aethernet -> walk candidate. This is offered only when Lifestream is currently
         // answering; optional-dependency failure must never strand the route planner.
-        if (_config.UseAethernetTravel && _lifestream.Available && nodes.Count >= 2)
+        var resolvedDeparture = ResolveDepartureNode(nodes, start);
+        if (_config.UseAethernetTravel && _lifestream.Available && nodes.Count >= 2
+            && resolvedDeparture is { } departure)
         {
-            foreach (var departure in nodes)
+            var walkToDeparture = Movement.HorizontalDistance(start, departure.Position);
+            foreach (var inbound in nodes)
             {
-                var walkToDeparture = Movement.HorizontalDistance(start, departure.Position);
-                foreach (var inbound in nodes)
-                {
-                    if (departure.CustomAetheryteId == inbound.CustomAetheryteId)
-                        continue;
+                if (departure.CustomAetheryteId == inbound.CustomAetheryteId)
+                    continue;
+                if (inbound.IsBaseCamp && !departure.IsBaseCamp)
+                    continue;
 
-                    var walkFromInbound = Movement.HorizontalDistance(inbound.Position, finalDestination);
-                    var cost = walkToDeparture + hopCost + walkFromInbound;
-                    if (cost >= best)
-                        continue;
+                var walkFromInbound = Movement.HorizontalDistance(inbound.Position, finalDestination);
+                var cost = walkToDeparture + hopCost + walkFromInbound;
+                if (cost >= best)
+                    continue;
 
-                    best = cost;
-                    bestMode = FieldTravelMode.WalkToAetheryte;
-                    bestDeparture = departure;
-                    bestInbound = inbound;
-                }
+                best = cost;
+                bestMode = FieldTravelMode.WalkToAetheryte;
+                bestDeparture = departure;
+                bestInbound = inbound;
             }
         }
 
@@ -495,15 +505,20 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             && nodes.Count >= 2)
         {
             var hypothetical = best;
-            foreach (var departure in nodes)
-            foreach (var inbound in nodes)
+            if (resolvedDeparture is { } waitDeparture)
             {
-                if (departure.CustomAetheryteId == inbound.CustomAetheryteId)
-                    continue;
-                var candidate = Movement.HorizontalDistance(start, departure.Position)
-                                + hopCost
-                                + Movement.HorizontalDistance(inbound.Position, finalDestination);
-                hypothetical = MathF.Min(hypothetical, candidate);
+                var walkToDeparture = Movement.HorizontalDistance(start, waitDeparture.Position);
+                foreach (var inbound in nodes)
+                {
+                    if (waitDeparture.CustomAetheryteId == inbound.CustomAetheryteId)
+                        continue;
+                    if (inbound.IsBaseCamp && !waitDeparture.IsBaseCamp)
+                        continue;
+                    var candidate = walkToDeparture
+                                    + hopCost
+                                    + Movement.HorizontalDistance(inbound.Position, finalDestination);
+                    hypothetical = MathF.Min(hypothetical, candidate);
+                }
             }
 
             if (_config.UseReturnRouting
@@ -553,6 +568,41 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         Svc.Log.Information(
             $"[BozjaBuddyReborn] BOCCHI-style route selected: mode={bestMode}, direct={direct:F0}y, " +
             $"planned={best:F0}y, departure={bestDeparture.Value.PlaceNameId}, inbound={bestInbound.Value.PlaceNameId}.");
+    }
+
+    private static FieldAethernet.Node? ResolveDepartureNode(
+        IReadOnlyList<FieldAethernet.Node> nodes, Vector3 start)
+    {
+        FieldAethernet.Node? baseCamp = null;
+        FieldAethernet.Node? nearest = null;
+        FieldAethernet.Node? snapped = null;
+        var nearestDistance = float.MaxValue;
+        var snappedDistance = float.MaxValue;
+
+        foreach (var node in nodes)
+        {
+            var distance = Movement.HorizontalDistance(start, node.Position);
+            if (node.IsBaseCamp)
+                baseCamp = node;
+
+            if (distance < nearestDistance)
+            {
+                nearest = node;
+                nearestDistance = distance;
+            }
+
+            if (distance <= NavigationConstants.GraphSnapRadius && distance < snappedDistance)
+            {
+                snapped = node;
+                snappedDistance = distance;
+            }
+        }
+
+        if (baseCamp is { } camp
+            && Movement.HorizontalDistance(start, camp.Position) <= NavigationConstants.CampRadius)
+            return camp;
+
+        return snapped ?? nearest;
     }
 
     private void FallBack(string reason)

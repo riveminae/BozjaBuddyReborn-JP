@@ -15,5 +15,6 @@ public static class NavigationConstants
     public const float ReturnCost = 40f;
     public const float AethernetHopCost = 50f;
     public const float CampRadius = 80f;
+    public const float GraphSnapRadius = 45f;
     public const float MountMinDistance = 20f;
 }

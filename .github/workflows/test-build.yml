@@ -47,6 +47,31 @@ jobs:
       - name: Apply timeout-safe packet patches
         run: python tools/packets/run_all.py
 
+      - name: Verify packet idempotency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Materialise the complete working tree, including packet-created untracked files, into
+          # the temporary index and compare Git tree objects around a second packet replay. A true
+          # idempotent replay must leave byte-for-byte the same tree.
+          git add -A
+          $before = (git write-tree).Trim()
+          git reset --quiet
+
+          python tools/packets/run_all.py
+
+          git add -A
+          $after = (git write-tree).Trim()
+          git reset --quiet
+
+          if ($before -ne $after) {
+            git status --short
+            git diff --check
+            throw "Packet replay changed the working tree: before=$before after=$after"
+          }
+          Write-Host "Packet idempotency: PASS ($after)"
+
       - name: Enforce v1.1 static contract
         run: python tools/validate_v110_contract.py
 

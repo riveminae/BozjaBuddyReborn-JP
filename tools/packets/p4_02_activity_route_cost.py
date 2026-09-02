@@ -4,10 +4,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def patch(path: str, old: str, new: str) -> None:
+def patch(path: str, old: str, new: str, semantic_marker: str | None = None) -> None:
     p = ROOT / path
     text = p.read_text(encoding="utf-8-sig")
-    if new in text:
+    if new in text or (semantic_marker is not None and semantic_marker in text):
         print(f"{path}: already applied")
         return
     if old not in text:
@@ -17,6 +17,8 @@ def patch(path: str, old: str, new: str) -> None:
 
 
 # Pure candidate cost: same constants/options as the live router, but no route-state mutation.
+# Later P2 packets intentionally refine the body, so idempotency is keyed to the public method
+# signature rather than the exact original implementation text.
 patch(
     "Automation/FieldTravelRouter.cs",
     """    public bool IsRoutingTo(Vector3 destination) =>
@@ -91,6 +93,7 @@ patch(
 
     public void Reset()
 """,
+    semantic_marker="public float EstimateCost(Vector3 start, Vector3 destination)",
 )
 
 # Ensure Plan resets the pending Return confirmation flag too. Later packets add their own reset

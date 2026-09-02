@@ -92,6 +92,14 @@ internal sealed class NavPathCostCache(NavmeshIpc navmesh)
         return false;
     }
 
+    /// <summary>True only while this exact telemetry path query is still running.</summary>
+    public bool IsPending(uint territory, Vector3 from, Vector3 to)
+    {
+        Poll(Environment.TickCount64);
+        return _entries.TryGetValue(Key.For(territory, from, to), out var entry)
+               && entry.Pending is { IsCompleted: false };
+    }
+
     /// <summary>Cancel exactly one cost probe, never a movement path.</summary>
     public bool Cancel(uint territory, Vector3 from, Vector3 to)
     {

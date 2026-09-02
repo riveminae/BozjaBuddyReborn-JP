@@ -65,6 +65,80 @@ require(
     "field travel always requests a ground path",
 )
 
+# BOCCHI-derived field traversal invariants. Departure identity follows BOCCHI's camp -> 45y graph
+# snap -> nearest-node rule. The departure walk may be measured with vnavmesh.Nav.PathfindCancelable,
+# but telemetry must stay bounded/non-blocking and must drain before a real movement path can replace it.
+require(
+    "Vendor/BOCCHI/NavigationConstants.cs",
+    "public const float GraphSnapRadius = 45f;",
+    "BOCCHI graph snap radius is retained",
+)
+require(
+    "Automation/FieldTravelRouter.cs",
+    "ResolveDepartureNode(nodes, start)",
+    "aethernet planning resolves one BOCCHI-style departure node",
+)
+require(
+    "External/NavmeshIpc.cs",
+    '"vnavmesh.Nav.PathfindCancelable"',
+    "route-cost telemetry uses the cancelable vnavmesh query",
+)
+require(
+    "Automation/NavPathCostCache.cs",
+    "private const int MaxPending = 1;",
+    "only one route-cost path query may be pending",
+)
+require(
+    "Automation/NavPathCostCache.cs",
+    "public bool HasPending",
+    "router can observe telemetry drain completion",
+)
+require(
+    "Automation/NavPathCostCache.cs",
+    "public bool CancelAllPending()",
+    "router can cancel telemetry without touching movement",
+)
+forbid(
+    "Automation/NavPathCostCache.cs",
+    "SimpleMove",
+    "route-cost cache must never own movement",
+)
+forbid(
+    "Automation/NavPathCostCache.cs",
+    "GetAwaiter().GetResult",
+    "route-cost telemetry must never synchronously block the framework tick",
+)
+require(
+    "Automation/FieldTravelRouter.cs",
+    "private const long PathCostPlanningWaitMs = 750;",
+    "new routes wait at most 750ms before cancelling slow cost telemetry",
+)
+require(
+    "Automation/FieldTravelRouter.cs",
+    "_pathCosts.Estimate(",
+    "aethernet candidate can consume measured departure walk cost",
+)
+require(
+    "Automation/FieldTravelRouter.cs",
+    "private bool _planningDiscardResult;",
+    "stale planning results are explicitly discardable",
+)
+require(
+    "Automation/FieldTravelRouter.cs",
+    "_planningTerritory = territory;",
+    "path-cost query keeps the territory that owns its cache key",
+)
+require(
+    "Automation/FieldTravelRouter.cs",
+    "_pathCosts.CancelAllPending();",
+    "Stop/replan requests telemetry cancellation",
+)
+require(
+    "Automation/FieldTravelRouter.cs",
+    "if (_pathCosts.HasPending)",
+    "replanning drains old telemetry before new movement",
+)
+
 # Mounted travel must never be dismounted by survival automation.
 require("Automation/HolsterDriver.cs", "if (Mount.IsMounted)", "mounted Lost Action guard exists")
 require("Automation/HolsterDriver.cs", "TickTravelSurvival", "on-foot travel survival path exists")

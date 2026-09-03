@@ -61,7 +61,7 @@ public sealed class MultiboxerWindow : Window
         LostActionCatalog catalog,
         ErrandRunner errands,
         SignUpRunner signUps)
-        : base("Bozja Multiboxer###BozjaBuddyRebornMultiboxer")
+        : base("ボズヤ マルチボックス###BozjaBuddyRebornMultiboxer")
     {
         _config = config;
         _link = link;
@@ -116,23 +116,23 @@ public sealed class MultiboxerWindow : Window
     {
         if (!_config.MultiboxEnabled)
         {
-            ImGui.TextColored(Yellow, "Multibox is off - this panel drives only this box.");
-            ImGui.TextColored(Grey, "Turn it on in the main window to control the whole group.");
+            ImGui.TextColored(Yellow, "マルチボックスはOFFです。この画面では現在のクライアントだけを操作します。");
+            ImGui.TextColored(Grey, "グループ全体を操作する場合はメイン画面でマルチボックスを有効にしてください。");
             return;
         }
 
         if (!_config.MultiboxIsHost)
         {
-            ImGui.TextColored(Yellow, "This box is a client.");
+            ImGui.TextColored(Yellow, "このクライアントは子機です。");
             ImGui.TextColored(Grey,
-                "Only the host can send instructions to the group - tick \"This client is the host\"\n" +
-                "on whichever box you actually sit at. Buttons here still drive this box.");
+                "グループ全体へ指示できるのはホストだけです。操作する1クライアントだけで\n" +
+                "「このクライアントをホストにする」をONにしてください。この画面の自機操作は引き続き使えます。");
             return;
         }
 
         var peers = _link.PeerCount;
         ImGui.TextColored(peers > 0 ? Green : Grey,
-            peers > 0 ? $"Host - {peers} box{(peers == 1 ? "" : "es")} connected" : "Host - nobody connected yet");
+            peers > 0 ? $"ホスト - {peers}クライアント接続中" : "ホスト - まだ他クライアントは接続していません");
     }
 
     // -------------------------------------------------------------------- boxes
@@ -141,7 +141,7 @@ public sealed class MultiboxerWindow : Window
     {
         if (CanCommand)
         {
-            ImGui.TextColored(Grey, "Everything below, for every box at once:");
+            ImGui.TextColored(Grey, "以下の操作を全クライアントへ一括送信します:");
 
             // The one the operator reaches for under time pressure - a registration window is
             // short, so it gets its own row and the widest button.
@@ -152,7 +152,7 @@ public sealed class MultiboxerWindow : Window
                 _link.SendCommandLocal(new BoxCommand(_sync.SelfName, BoxVerb.SignUp, ""));
 
             if (_signUps.Status.Length > 0)
-                ImGui.TextColored(_signUps.Active ? Yellow : Grey, $"   {_signUps.Status}");
+                ImGui.TextColored(_signUps.Active ? Yellow : Grey, $"   {Loc.Runtime(_signUps.Status)}");
 
             // The phase and the window's real button labels, because "it did nothing" needs to be
             // separable into "no button" / "wrong label" / "clicked and ignored". Joining is a
@@ -160,25 +160,24 @@ public sealed class MultiboxerWindow : Window
             // sitting in AwaitingSelection is working correctly, not stuck.
             if (_signUps.Active)
             {
-                ImGui.TextColored(Grey, Loc.Ja ? $"   フェーズ: {Loc.Phase(_signUps.Phase)}" : $"   phase: {_signUps.Phase}");
+                ImGui.TextColored(Grey, $"   フェーズ: {Loc.Phase(_signUps.Phase)}");
                 ImGui.TextColored(Grey,
                     _signUps.LastButtons.Count == 0
-                        ? "   window buttons: none found"
-                        : $"   window buttons: {string.Join(", ", _signUps.LastButtons)}");
+                        ? "   ボズヤファインダーのボタンを検出できません"
+                        : $"   検出ボタン: {string.Join(", ", _signUps.LastButtons)}");
             }
 
             ImGui.Spacing();
 
-            if (ImGui.Button("Party support ON, all boxes", new Vector2(280, 0)))
+            if (ImGui.Button("全クライアントでパーティ支援ON", new Vector2(280, 0)))
                 _link.SendCommand(new BoxCommand(BoxCommand.All, BoxVerb.PartySupport, "1"));
             ImGui.SameLine();
-            if (ImGui.Button("OFF, all boxes"))
+            if (ImGui.Button("全クライアントでOFF"))
                 _link.SendCommand(new BoxCommand(BoxCommand.All, BoxVerb.PartySupport, "0"));
 
             ImGui.TextColored(Grey,
-                "   Buffs and heals the party from every box at once. It spends farmed charges for as\n" +
-                "   long as it runs, which is why the OFF button sits next to the ON one rather than\n" +
-                "   in a menu, and why each box also stops itself the moment it runs out.");
+                "   全クライアントからパーティへのバフ・回復を行います。ロストアクションのチャージを消費するため、\n" +
+                "   ON/OFFをすぐ切り替えられるよう並べています。在庫切れになったクライアントは自動停止します。");
 
             ImGui.Spacing();
 
@@ -186,7 +185,7 @@ public sealed class MultiboxerWindow : Window
             ImGui.SameLine();
             if (ImGui.Button(Loc.T("Stop all", "全クライアント停止"))) _link.SendCommand(new BoxCommand(BoxCommand.All, BoxVerb.Stop, ""));
             ImGui.SameLine();
-            if (ImGui.Button("Cancel errands")) _link.SendCommand(new BoxCommand(BoxCommand.All, BoxVerb.Cancel, ""));
+            if (ImGui.Button("全クライアントの移動指示を中止")) _link.SendCommand(new BoxCommand(BoxCommand.All, BoxVerb.Cancel, ""));
             ImGui.Separator();
         }
 
@@ -195,7 +194,7 @@ public sealed class MultiboxerWindow : Window
         {
             ImGui.PushID(box.Name);
 
-            ImGui.TextColored(box.IsSelf ? Green : Grey, box.IsSelf ? $"{box.Name} (you)" : box.Name);
+            ImGui.TextColored(box.IsSelf ? Green : Grey, box.IsSelf ? $"{box.Name}（自分）" : box.Name);
 
             // Slot summary in words - the icons live in the hotbar window; here the useful thing
             // is whether the box is actually loaded for what you are about to do.
@@ -204,30 +203,30 @@ public sealed class MultiboxerWindow : Window
 
             if (box.IsSelf)
             {
-                ImGui.TextColored(Grey, $"   {_controller.Status}");
+                ImGui.TextColored(Grey, $"   {Loc.Runtime(_controller.Status)}");
                 if (_errands.Active)
-                    ImGui.TextColored(Yellow, $"   Errand: {_errands.Status}");
+                    ImGui.TextColored(Yellow, $"   移動指示: {Loc.Runtime(_errands.Status)}");
 
                 var support = _controller.PartySupport;
                 if (support.Active || support.Status.Length > 0)
-                    ImGui.TextColored(support.Active ? Green : Grey, $"   Party support: {support.Status}");
+                    ImGui.TextColored(support.Active ? Green : Grey, $"   パーティ支援: {Loc.Runtime(support.Status)}");
 
-                if (ImGui.SmallButton(support.Active ? "Stop party support" : "Start party support"))
+                if (ImGui.SmallButton(support.Active ? "パーティ支援を停止" : "パーティ支援を開始"))
                     support.Toggle();
             }
             else if (CanCommand)
             {
-                if (ImGui.SmallButton("Support on"))
+                if (ImGui.SmallButton("支援ON"))
                     _link.SendCommand(new BoxCommand(box.Name, BoxVerb.PartySupport, "1"));
                 ImGui.SameLine();
-                if (ImGui.SmallButton("Support off"))
+                if (ImGui.SmallButton("支援OFF"))
                     _link.SendCommand(new BoxCommand(box.Name, BoxVerb.PartySupport, "0"));
                 ImGui.SameLine();
-                if (ImGui.SmallButton("Start")) _link.SendCommand(new BoxCommand(box.Name, BoxVerb.Start, ""));
+                if (ImGui.SmallButton("開始")) _link.SendCommand(new BoxCommand(box.Name, BoxVerb.Start, ""));
                 ImGui.SameLine();
-                if (ImGui.SmallButton("Stop")) _link.SendCommand(new BoxCommand(box.Name, BoxVerb.Stop, ""));
+                if (ImGui.SmallButton("停止")) _link.SendCommand(new BoxCommand(box.Name, BoxVerb.Stop, ""));
                 ImGui.SameLine();
-                if (ImGui.SmallButton("Cancel")) _link.SendCommand(new BoxCommand(box.Name, BoxVerb.Cancel, ""));
+                if (ImGui.SmallButton("移動中止")) _link.SendCommand(new BoxCommand(box.Name, BoxVerb.Cancel, ""));
                 ImGui.SameLine();
                 if (ImGui.SmallButton(Loc.T("Sign up", "CE参加申請"))) _link.SendCommand(new BoxCommand(box.Name, BoxVerb.SignUp, ""));
             }
@@ -239,21 +238,21 @@ public sealed class MultiboxerWindow : Window
         if (rows.Count <= 1 && _config.MultiboxEnabled)
         {
             ImGui.TextColored(Grey,
-                "Only this box is listed. Peers appear once they connect - see the main window's\n" +
-                "Multibox tab if the link is not coming up.");
+                "現在はこのクライアントだけが表示されています。他クライアントは接続後に表示されます。\n" +
+                "接続されない場合はメイン画面の「マルチボックス」を確認してください。");
         }
 
         if (_controller.LastCommandResult.Length > 0)
         {
             ImGui.Separator();
-            ImGui.TextColored(Grey, $"Last instruction here: {_controller.LastCommandResult}");
+            ImGui.TextColored(Grey, $"直近の操作結果: {Loc.Runtime(_controller.LastCommandResult)}");
         }
     }
 
     private string Describe(DutySlot s)
     {
         if (!s.IsSet)
-            return "(empty)";
+            return "（空）";
         var (name, _) = DutyActions.Describe(s.ActionId);
         return s.MaxCharges > 1 ? $"{name} {s.CurCharges}/{s.MaxCharges}" : name;
     }
@@ -263,15 +262,12 @@ public sealed class MultiboxerWindow : Window
     private void DrawLoadouts()
     {
         ImGui.TextColored(Grey,
-            "A loadout is the two Lost Actions to keep in the duty slots, plus optionally the Essence\n" +
-            "to be running, plus which box it is for. Applying one sets those slots on that box - it\n" +
-            "does NOT buy or transfer anything, so a box that does not hold the action reports that\n" +
-            "instead of silently looking configured.");
+            "ロードアウトはDuty Action 2枠、任意のEssence、適用先クライアントをまとめた設定です。\n" +
+            "適用してもアイテム購入やCache↔Holster転送は行いません。必要なアクションを所持していない場合は\n" +
+            "設定済みに見せかけず、そのクライアント側で不足として表示します。");
         ImGui.TextColored(Yellow,
-            "The two duty slots only move an icon onto the bar. The Essence is an ITEM: applying it\n" +
-            "SPENDS a copy. It is skipped when that Essence's buff is already running, so re-applying\n" +
-            "a loadout - or pushing one to a group where some boxes are already buffed - costs\n" +
-            "nothing on the boxes that do not need it.");
+            "Duty Action 2枠の設定自体は消費しませんが、Essenceはアイテムなので適用すると1個消費します。\n" +
+            "同じEssence効果が既に有効な場合は再使用しないため、ロードアウトの再適用で無駄に消費しません。");
         ImGui.Separator();
 
         for (var i = 0; i < _config.Loadouts.Count; i++)
@@ -282,11 +278,11 @@ public sealed class MultiboxerWindow : Window
             ImGui.TextColored(Green, lo.Name);
             ImGui.SameLine();
             ImGui.TextColored(Grey, lo.Target.Length == 0
-                ? "-> this box"
-                : lo.Target == Loadout.AllBoxes ? "-> all boxes" : $"-> {lo.Target}");
+                ? "→ このクライアント"
+                : lo.Target == Loadout.AllBoxes ? "→ 全クライアント" : $"→ {lo.Target}");
             ImGui.TextColored(Grey, $"   1: {_catalog.Name(lo.Slot0)}    2: {_catalog.Name(lo.Slot1)}");
             if (lo.Essence != 0)
-                ImGui.TextColored(Grey, $"   Essence: {_catalog.Name(lo.Essence)}{EssenceNote(lo.Essence)}");
+                ImGui.TextColored(Grey, $"   エッセンス: {_catalog.Name(lo.Essence)}{EssenceNote(lo.Essence)}");
 
             DrawApplyButton(lo);
 
@@ -314,7 +310,7 @@ public sealed class MultiboxerWindow : Window
         }
 
         ImGui.SetNextItemWidth(200);
-        ImGui.InputTextWithHint("###newloadout", "new loadout name", ref _newName, 64);
+        ImGui.InputTextWithHint("###newloadout", "新しいロードアウト名", ref _newName, 64);
         ImGui.SameLine();
         if (ImGui.Button(Loc.T("Add", "追加")) && _newName.Trim().Length > 0)
         {
@@ -334,22 +330,22 @@ public sealed class MultiboxerWindow : Window
         // Duty slots take action-type entries only; the Essence picker takes the 36 Essence rows.
         // The two lists are disjoint by construction - see LostActionCatalog - so neither picker
         // can produce a loadout that applies cleanly and then does nothing.
-        if (DrawPicker("Duty slot 1", lo.Slot0, _catalog.DutyActions,
-                "(leave this slot alone)", ref _findSlot0, out var newSlot0))
+        if (DrawPicker("Duty Action 1", lo.Slot0, _catalog.DutyActions,
+                "（この枠は変更しない）", ref _findSlot0, out var newSlot0))
         {
             lo.Slot0 = newSlot0;
             Save();
         }
 
-        if (DrawPicker("Duty slot 2", lo.Slot1, _catalog.DutyActions,
-                "(leave this slot alone)", ref _findSlot1, out var newSlot1))
+        if (DrawPicker("Duty Action 2", lo.Slot1, _catalog.DutyActions,
+                "（この枠は変更しない）", ref _findSlot1, out var newSlot1))
         {
             lo.Slot1 = newSlot1;
             Save();
         }
 
         if (DrawPicker("Essence", lo.Essence, _catalog.Essences,
-                "(leave my Essence alone)", ref _findEssence, out var newEssence))
+                "（現在のEssenceを変更しない）", ref _findEssence, out var newEssence))
         {
             lo.Essence = newEssence;
             Save();
@@ -358,12 +354,12 @@ public sealed class MultiboxerWindow : Window
         if (lo.Essence != 0)
         {
             ImGui.TextColored(Yellow,
-                "   Spends a copy when applied, unless that Essence's buff is already running.");
+                "   適用時に1個消費します。同じEssence効果が既に有効な場合は消費しません。");
             if (LostActionStatuses.SharesStatusWithDeeper(lo.Essence))
             {
                 ImGui.TextColored(Grey,
-                    "   A plain and a Deep Essence of the same name share one status effect, so this\n" +
-                    "   cannot tell an upgrade from a repeat and will not spend one over the other.");
+                    "   通常版とDeep版が同じステータスを共有する場合、上位版への更新か単なる重複か判別できないため、\n" +
+                    "   既存効果の上からは自動使用しません。");
             }
         }
 
@@ -403,7 +399,7 @@ public sealed class MultiboxerWindow : Window
         }
 
         ImGui.SetNextItemWidth(-1);
-        var enter = ImGui.InputTextWithHint("##find", "search", ref filter, 64,
+        var enter = ImGui.InputTextWithHint("##find", "検索", ref filter, 64,
             ImGuiInputTextFlags.EnterReturnsTrue);
 
         ImGui.Separator();
@@ -462,7 +458,7 @@ public sealed class MultiboxerWindow : Window
         if (!LostActionStatuses.IsActive(e.StatusId, out var remaining))
             return string.Empty;
 
-        return remaining > 0f ? $"  (running, {FormatRemaining(remaining)} left)" : "  (running)";
+        return remaining > 0f ? $"  （有効中、残り{FormatRemaining(remaining)}）" : "  （有効中）";
     }
 
     private static string FormatRemaining(float seconds)
@@ -482,19 +478,19 @@ public sealed class MultiboxerWindow : Window
     private void DrawApplyButton(Loadout lo)
     {
         var label = lo.Target.Length == 0
-            ? "Apply here"
-            : lo.Target == Loadout.AllBoxes ? "Apply to all boxes" : $"Apply to {lo.Target}";
+            ? "このクライアントへ適用"
+            : lo.Target == Loadout.AllBoxes ? "全クライアントへ適用" : $"{lo.Target}へ適用";
 
         // A peer is only reachable from the host, and only while it is actually connected. Both
         // failures are silent at the wire - a BoxCommand addressed to nobody is simply ignored by
         // everyone - so they are caught here and named instead.
         var blocked = string.Empty;
         if (lo.Target == Loadout.AllBoxes && !CanCommand)
-            blocked = "only the host can address the group";
+            blocked = "グループ全体への指示はホストのみ可能です";
         else if (lo.TargetsPeer && !CanCommand)
-            blocked = "only the host can drive another box";
+            blocked = "他クライアントへの指示はホストのみ可能です";
         else if (lo.TargetsPeer && !IsConnected(lo.Target))
-            blocked = $"{lo.Target} is not connected";
+            blocked = $"{lo.Target} は未接続です";
 
         if (blocked.Length > 0)
         {
@@ -533,20 +529,20 @@ public sealed class MultiboxerWindow : Window
     private void DrawTargetPicker(Loadout lo)
     {
         var preview = lo.Target.Length == 0
-            ? "This box"
-            : lo.Target == Loadout.AllBoxes ? "All boxes" : lo.Target;
+            ? "このクライアント"
+            : lo.Target == Loadout.AllBoxes ? "全クライアント" : lo.Target;
 
         ImGui.SetNextItemWidth(260);
-        if (!ImGui.BeginCombo("Apply to", preview))
+        if (!ImGui.BeginCombo("適用先", preview))
             return;
 
-        if (ImGui.Selectable("This box", lo.Target.Length == 0))
+        if (ImGui.Selectable("このクライアント", lo.Target.Length == 0))
         {
             lo.Target = string.Empty;
             Save();
         }
 
-        if (ImGui.Selectable("All boxes", lo.Target == Loadout.AllBoxes))
+        if (ImGui.Selectable("全クライアント", lo.Target == Loadout.AllBoxes))
         {
             lo.Target = Loadout.AllBoxes;
             Save();
@@ -574,7 +570,7 @@ public sealed class MultiboxerWindow : Window
         // showing a name it does not offer, and re-picking it would be impossible until that box
         // happened to be up.
         if (lo.TargetsPeer && !sawSaved)
-            ImGui.TextColored(Yellow, $"{lo.Target}  (not connected)");
+            ImGui.TextColored(Yellow, $"{lo.Target}  （未接続）");
 
         ImGui.EndCombo();
     }
@@ -587,13 +583,12 @@ public sealed class MultiboxerWindow : Window
     private void DrawErrands()
     {
         ImGui.TextColored(Grey,
-            "Send a box to the nearest object of a kind and interact with it. The box walks there\n" +
-            "with vnavmesh, so it must be able to path to it - errands do not teleport.");
+            "指定した種類のオブジェクトで最寄りのものへ移動し、操作します。\n" +
+            "通常の周回と同じBOCCHI式経路を使用し、必要ならフィールド内Aethernetも利用します。");
 
         ImGui.TextColored(Grey,
-            "Bozja and Zadnor have no Teleport-style fast travel (no Aetheryte rows, no teleport\n" +
-            "coordinates), but a \"Bozjan aetheryte\" is a real interactable object in the world, so\n" +
-            "walking to one and using it is exactly what this does.");
+            "南方ボズヤ戦線・ザトゥノル高原のフィールド内AethernetはLifestream連携で使用します。\n" +
+            "Lifestreamが利用できない場合はvnavmeshの地上移動へフォールバックします。");
         ImGui.Separator();
 
         foreach (var t in Interactables.Known)
@@ -602,20 +597,20 @@ public sealed class MultiboxerWindow : Window
 
             ImGui.TextColored(Green, t.Label);
             ImGui.SameLine();
-            ImGui.TextColored(Grey, $"- {t.Note}");
+            ImGui.TextColored(Grey, $"- {Loc.Runtime(t.Note)}");
 
             var near = Interactables.Nearest(t.DataId);
             ImGui.TextColored(Grey, near is { } n
-                ? $"   nearest to this box: {Movement.DistanceToPlayer(n.Position):F0}y"
-                : "   none visible from this box");
+                ? $"   このクライアントから最寄り: {Movement.DistanceToPlayer(n.Position):F0}y"
+                : "   現在見える範囲にありません");
 
-            if (ImGui.SmallButton("Send this box"))
+            if (ImGui.SmallButton("このクライアントを移動"))
                 _link.SendCommandLocal(new BoxCommand(_sync.SelfName, BoxVerb.Interact, t.DataId.ToString()));
 
             if (CanCommand)
             {
                 ImGui.SameLine();
-                if (ImGui.SmallButton("Send all boxes"))
+                if (ImGui.SmallButton("全クライアントを移動"))
                     _link.SendCommand(new BoxCommand(BoxCommand.All, BoxVerb.Interact, t.DataId.ToString()));
             }
 
@@ -625,13 +620,13 @@ public sealed class MultiboxerWindow : Window
 
         if (_errands.Active)
         {
-            ImGui.TextColored(Yellow, $"This box: {_errands.Status}");
-            if (ImGui.Button("Cancel this box's errand"))
-                _errands.Cancel("Cancelled from the panel.");
+            ImGui.TextColored(Yellow, $"このクライアント: {Loc.Runtime(_errands.Status)}");
+            if (ImGui.Button("このクライアントの移動指示を中止"))
+                _errands.Cancel("操作画面から移動指示を中止しました。");
         }
         else if (_errands.Status.Length > 0)
         {
-            ImGui.TextColored(Grey, $"This box: {_errands.Status}");
+            ImGui.TextColored(Grey, $"このクライアント: {Loc.Runtime(_errands.Status)}");
         }
     }
 }

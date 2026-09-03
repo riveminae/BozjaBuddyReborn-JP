@@ -5,6 +5,13 @@ using Dalamud.Configuration;
 namespace BozjaBuddyReborn;
 
 /// <summary>How the runner answers something that aggroes onto it mid-route.</summary>
+public enum RelicFarmStopMode : byte
+{
+    Unlimited = 0,
+    SelectedMaterialComplete = 1,
+    CurrentStageComplete = 2,
+}
+
 public enum TravelAggroResponse : byte
 {
     /// <summary>
@@ -20,7 +27,7 @@ public enum TravelAggroResponse : byte
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 3;
 
     // --- combat roles -------------------------------------------------------
     // The split is the design: BossMod dodges, RSR presses buttons. Both default on.
@@ -61,6 +68,9 @@ public sealed class Configuration : IPluginConfiguration
     /// just ours.
     /// </summary>
     public bool LogUiCallbacks;
+
+    /// <summary>Test-only: log receive events from MYCItemBox/MYCItemBagTrade to identify safe transfer callbacks.</summary>
+    public bool LogMycItemBoxCallbacks;
 
     /// <summary>
     /// Walk into range of the current target during a fight and stay there.
@@ -120,13 +130,25 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Preferred order; engagements earlier in this list win ties.</summary>
     public List<uint> PriorityEngagements = [];
 
+    /// <summary>Reject strictly identified incoming social requests while the runner is active.</summary>
+    public bool RejectSocialRequestsWhileRunning = true;
+
     // --- zone-targeted farming ---------------------------------------------
     // Relic materials are region-specific, and in Zadnor skirmishes and Critical Engagements
     // within the same plateau drop different items. Setting a farm target restricts selection
     // to objectives that actually drop it.
 
-    /// <summary>Item id of the relic material to farm, or 0 for "anything".</summary>
+    /// <summary>Runtime compatibility mirror of the current character's farm target.</summary>
     public uint FarmMaterialItemId;
+
+    /// <summary>Resistance Relic farm target keyed by Dalamud LocalContentId.</summary>
+    public Dictionary<ulong, uint> CharacterFarmMaterialItemIds = [];
+
+    /// <summary>After an explicitly-selected material completes, continue to the next shortage in this territory.</summary>
+    public bool RelicAutoContinue = true;
+
+    /// <summary>Default is unattended/unlimited; optional stops can end at the selected material or current stage.</summary>
+    public RelicFarmStopMode RelicFarmStopMode = RelicFarmStopMode.Unlimited;
 
     /// <summary>
     /// Restrict work to one third of the zone: 0 = anywhere, 1/2/3 = Z1/Z2/Z3. Ignored while a
@@ -172,13 +194,37 @@ public sealed class Configuration : IPluginConfiguration
 
     // --- movement -----------------------------------------------------------
 
-    /// <summary>Allow vnavmesh to fly. Bozja and Zadnor both permit flight.</summary>
-    public bool AllowFlight = true;
-
     /// <summary>
-    /// Summon a mount for long hauls. Neither field zone has an aetheryte, so mount travel is
-    /// the only fast travel available - with this off, the character jogs the whole map.
+    /// Compatibility field retained for migration from 1.0.x. Save the Queen field zones are
+    /// ground-only; v1.1 never asks vnavmesh for a flying path.
     /// </summary>
+    public bool AllowFlight = false;
+
+    /// <summary>Use the BOCCHI-derived field travel planner instead of legacy direct paths.</summary>
+    public bool UseBocchiNavigation = true;
+
+    /// <summary>Use the Bozja/Zadnor custom aethernet through optional Lifestream IPC.</summary>
+    public bool UseAethernetTravel = true;
+
+    /// <summary>Allow Return -> base camp routes when that leg becomes available in the planner.</summary>
+    public bool UseReturnRouting = true;
+
+    /// <summary>Emergency escape hatch retained in stable builds.</summary>
+    public bool LegacyMovement;
+
+    /// <summary>BOCCHI default: walk directly when the goal is within this many yalms.</summary>
+    public float NavigationMaxDirectWalkDistance = 80f;
+
+    /// <summary>BOCCHI yalm-equivalent cost assigned to one custom-aethernet hop.</summary>
+    public float NavigationAethernetHopCost = 50f;
+
+    /// <summary>BOCCHI yalm-equivalent cost assigned to Return.</summary>
+    public float NavigationReturnCost = 40f;
+
+    /// <summary>Do not choose a fresh skirmish already at or above this progress.</summary>
+    public byte NewSkirmishMaxProgress = 80;
+
+    /// <summary>Summon a mount for long ground hauls.</summary>
     public bool UseMount = true;
 
     /// <summary>How close to the engagement centre to stand before considering ourselves there.</summary>
@@ -222,6 +268,15 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary>Extra margin added when routing around a danger zone.</summary>
     public float DangerClearance = 6f;
 
+    /// <summary>Additional clearance around ★ enemies; they are always dangerous.</summary>
+    public float DangerStarExtraClearance = 5f;
+
+    /// <summary>Log each previously unseen field-rank raw icon pair once in test diagnostics.</summary>
+    public bool EnemyRankDiagnostics = true;
+
+    /// <summary>TEST/diagnostics only: draw route and dangerous-enemy geometry in the world.</summary>
+    public bool DebugWorldOverlay;
+
     /// <summary>
     /// Enemies within this distance of the destination are ignored - they are almost certainly
     /// the objective's own mobs, and routing around those would mean never arriving.
@@ -232,6 +287,53 @@ public sealed class Configuration : IPluginConfiguration
     /// including approaches to open-field staging points that have no objective mobs at all.
     /// </summary>
     public float DangerIgnoreNearObjective = 10f;
+
+    // --- survivability automation -------------------------------------------
+
+    /// <summary>Run the v1.1 survivability-first Lost Action policy.</summary>
+    public bool AutoSurvivalLostActions = true;
+
+    public float TankSurvivalHealFraction = 0.55f;
+    public float TankSurvivalEmergencyFraction = 0.30f;
+    public float HealerSurvivalHealFraction = 0.70f;
+    public float HealerSurvivalEmergencyFraction = 0.45f;
+    public float DpsSurvivalHealFraction = 0.65f;
+    public float DpsSurvivalEmergencyFraction = 0.40f;
+
+    /// <summary>Fast guard between two automatic survival spends; the game remains the final cooldown authority.</summary>
+    public int SurvivalUseGapMs = 750;
+
+    // --- survival supply watermarks -----------------------------------------
+
+    /// <summary>Routine refill threshold for Resistance Potion Kit reserves in the holster.</summary>
+    public int SupplyPotionKitLow = 2;
+
+    /// <summary>Routine refill threshold for Resistance Reraiser reserves in the holster.</summary>
+    public int SupplyReraiserLow = 1;
+
+    /// <summary>Conservative minimum immediately available/reserve units for the role's main Lost heal.</summary>
+    public int SupplyMainHealLow = 5;
+
+    /// <summary>Routine refill threshold for Lost Manawall reserve units.</summary>
+    public int SupplyEmergencyDefenseLow = 1;
+
+    /// <summary>Target Potion Kit reserve after a differential refill.</summary>
+    public int SupplyPotionKitTarget = 5;
+
+    /// <summary>Target Reraiser reserve after a differential refill.</summary>
+    public int SupplyReraiserTarget = 3;
+
+    /// <summary>Target reserve for the role's primary self-healing Lost Action.</summary>
+    public int SupplyMainHealTarget = 10;
+
+    /// <summary>Target Lost Manawall reserve after a differential refill.</summary>
+    public int SupplyEmergencyDefenseTarget = 2;
+
+    /// <summary>Per-row bring/refill overrides. Missing = policy default; Deep Essences default false.</summary>
+    public Dictionary<byte, bool> LostActionBringPermissions = [];
+
+    /// <summary>Per-row automatic-use overrides. Missing = policy default; Deep Essences default false.</summary>
+    public Dictionary<byte, bool> LostActionAutoUsePermissions = [];
 
     // --- lost actions -------------------------------------------------------
 

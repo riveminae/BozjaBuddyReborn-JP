@@ -17,140 +17,63 @@ namespace BozjaBuddyReborn.Automation;
 public enum SignUpPhase : byte
 {
     Idle = 0,
-
-    /// <summary>Asking the agent to show the Resistance Recruitment window.</summary>
     Opening = 1,
-
-    /// <summary>Window is up; looking for the Register button and pressing it.</summary>
     Registering = 2,
-
-    /// <summary>Registered. Waiting out the lottery for a Commence button to appear.</summary>
     AwaitingSelection = 3,
-
-    /// <summary>Commence pressed; waiting for the game to put us in.</summary>
     Commencing = 4,
-
     Done = 5,
 }
 
 /// <summary>
 /// Signs this box up for a Critical Engagement through the Resistance Recruitment window.
-///
-/// HOW JOINING ACTUALLY WORKS, because the whole class turns on it and the previous version had
-/// it half right. From the Patch 5.35 notes: critical engagements "do not require you to be
-/// present in the field to participate. Instead, players must request deployment via the
-/// Resistance Recruitment window." So this is a menu, not a place - walking into the marked
-/// circle does not enrol you.
-///
-/// AND IT IS TWO CLICKS, IN TWO PHASES, WHICH IS THE PART THAT WAS MISSING:
-///
-///   1. REGISTER, during the ~60s registration phase. This enters a lottery against the
-///      engagement's participant cap (24, or 48 for the large-scale ones).
-///   2. COMMENCE, during the ~120s preparation phase, and ONLY if the lottery picked you. This
-///      is the click that actually puts you in the arena. "Permission to join critical
-///      engagement granted! N minute remains to deploy" is the message that opens this phase.
-///
-/// The button is one button whose label changes: Register -> Withdraw once you are in the
-/// lottery -> Commence once you have been selected. A single press can therefore never complete
-/// a join, and the old implementation fired once and then watched the ENGAGEMENT's state - which
-/// advances on the game's own timer whether or not you did anything, so it reported success for
-/// doing nothing.
-///
-/// WHY THE BUTTON IS CLICKED RATHER THAN A CALLBACK FIRED. The old code fired
-/// Callback.Fire(addon, true, index) - a bare int, at a row index, with a comment admitting the
-/// shape was inferred rather than observed. Nothing anywhere drives this addon: no plugin in the
-/// local corpus of several hundred references it, and FFXIVClientStructs exposes no join method
-/// on the agent. Every windowed list addon in ECommons that DOES have per-row buttons uses a
-/// leading command selector rather than a bare index, so the guess was very likely wrong - and a
-/// wrong payload is not inert, it is an unknown command.
-///
-/// Clicking the button node needs no payload at all: ClickAddonButton reads the AtkEvent the
-/// game already attached to that button and hands it back through ReceiveEvent, which is how
-/// ECommons drives every other confirm button in the game. The label is then also the honest
-/// answer to "am I registered", with no struct to guess at.
-///
-/// LOCALISATION IS THE ONE REMAINING ASSUMPTION: the labels matched below are the English
-/// client's. Every button found is logged with its text, so a non-English client produces a log
-/// line naming exactly what to add rather than a silent failure.
+/// Registration is remote; Commence is pressed only after selection. An optional commence gate
+/// lets the controller hold the second click while survival supply is critically empty without
+/// delaying the initial registration or the lottery.
 /// </summary>
 public sealed class SignUpRunner
 {
-    /// <summary>FFXIVClientStructs AgentId 388 - the Resistance Recruitment window's agent.</summary>
     private const AgentId RecruitmentAgent = AgentId.MycBattleAreaInfo;
-
-    /// <summary>How long to wait for the window to come up before giving up.</summary>
     private const long OpenTimeoutMs = 8_000;
-
-    /// <summary>
-    /// How long to wait for the lottery after registering.
-    ///
-    /// The registration phase is about a minute and the preparation phase about two, so this
-    /// covers being registered early in a fresh window and still catching Commence. The old
-    /// 10 SECOND budget covered the whole attempt, which is shorter than the registration phase
-    /// alone - it could not have succeeded even with everything else right.
-    /// </summary>
     private const long SelectionTimeoutMs = 200_000;
-
-    /// <summary>How long to wait after pressing Commence before calling it a failure.</summary>
     private const long CommenceTimeoutMs = 20_000;
-
-    /// <summary>UI work is paced rather than run at frame rate; the game needs time to build.</summary>
     private const long StepMs = 250;
+    private const long AttemptTimeoutMs = 300_000;
+    private const long ClickSettleMs = 1500;
+    private const long WindowSettleMs = 600;
+    private const long LapsedConfirmMs = 3000;
+    private const int MaxReopens = 8;
+
+    private readonly Func<bool> _canCommence;
 
     private long _startedMs;
     private long _phaseSinceMs;
     private long _lastStepMs;
-
-    /// <summary>
-    /// Hard ceiling on one attempt, independent of the per-phase budgets.
-    ///
-    /// The per-phase clock is deliberately restarted by a window reopen, so without an overall cap
-    /// a window that keeps closing could keep the attempt alive indefinitely. Registration plus
-    /// preparation is about three minutes, so five is generous and still terminates.
-    /// </summary>
-    private const long AttemptTimeoutMs = 300_000;
     private bool _showRequested;
     private int _clicks;
     private int _reopens;
     private long _clickSettleUntilMs;
-
-    /// <summary>
-    /// How long to stop clicking after a click, while the game updates the button.
-    ///
-    /// THIS IS A SAFETY INTERLOCK, NOT A COSMETIC PAUSE. It is one button whose label changes,
-    /// and the label lags the press by a frame or two - so a second click fired into that gap
-    /// lands on the SAME button now meaning Withdraw, and cancels the registration we just made.
-    /// The flow would then look like it was trying repeatedly and getting nowhere, which is
-    /// indistinguishable from the bug this class was rewritten to fix.
-    /// </summary>
-    private const long ClickSettleMs = 1500;
-
     private long _lapsedSinceMs;
     private long _readySinceMs;
-
-    /// <summary>How long the window must have been loaded and visible before anything is clicked.</summary>
-    private const long WindowSettleMs = 600;
-
-    /// <summary>How long "Register is back, Withdraw is gone" must hold before it is believed.</summary>
-    private const long LapsedConfirmMs = 3000;
-
-    /// <summary>How many times the window may be reopened during one attempt. See the reopen path.</summary>
-    private const int MaxReopens = 8;
-
-    /// <summary>The engagement we are signing up FOR, latched by id rather than by list slot.</summary>
     private ushort _targetEventId;
+    private ushort _preferredEventId;
+    private string _loggedButtons = string.Empty;
+    private bool _commenceHeldForSupply;
+
+    public SignUpRunner(Func<bool>? canCommence = null)
+    {
+        // Failing open is intentional for callers that do not wire supply evaluation (for example
+        // an operator-only sign-up action). The production Plugin wires a strict critical-supply
+        // predicate. Exceptions inside that predicate are also handled fail-open below because an
+        // unavailable inventory read is not evidence that the character has zero recovery.
+        _canCommence = canCommence ?? (() => true);
+    }
 
     public bool Active { get; private set; }
     public SignUpPhase Phase { get; private set; } = SignUpPhase.Idle;
     public string Status { get; private set; } = string.Empty;
-
-    /// <summary>
-    /// Buttons seen on the last pass, with their labels. Purely diagnostic, and the thing to read
-    /// when this does not work: the window's real button labels appear here verbatim.
-    /// </summary>
     public IReadOnlyList<string> LastButtons { get; private set; } = [];
 
-    public void Begin()
+    public void Begin(ushort preferredEventId = 0)
     {
         Active = true;
         Phase = SignUpPhase.Opening;
@@ -164,10 +87,12 @@ public sealed class SignUpRunner
         _lapsedSinceMs = 0;
         _readySinceMs = 0;
         _targetEventId = 0;
+        _preferredEventId = preferredEventId;
         _loggedButtons = string.Empty;
+        _commenceHeldForSupply = false;
         LastButtons = [];
         Status = Loc.T("Opening the Resistance Recruitment window.", "ボズヤファインダーを開いています。");
-        Svc.Log.Information("[BozjaBuddyReborn] Sign-up: begin.");
+        Svc.Log.Information($"[BozjaBuddyReborn] Sign-up: begin (preferred CE #{_preferredEventId}).");
     }
 
     public void Cancel(string reason = "Sign-up cancelled.")
@@ -184,19 +109,42 @@ public sealed class SignUpRunner
     {
         Phase = phase;
         _phaseSinceMs = Environment.TickCount64;
-
-        // RE-ARM THE SHOW. The latch is per phase, not per attempt, and that distinction is the
-        // difference between a working Commence and a silent stall: pressing Register frequently
-        // closes the window, and the next phase then has to be able to open it again. Latched for
-        // the whole attempt (as it was) the runner sat waiting for a window it had decided it had
-        // already asked for, and timed out.
         _showRequested = false;
-
         Status = status;
         Svc.Log.Information($"[BozjaBuddyReborn] Sign-up: -> {phase}: {status}");
     }
 
     private long PhaseAgeMs => Environment.TickCount64 - _phaseSinceMs;
+
+    private bool HoldCommenceForCriticalSupply()
+    {
+        bool allowed;
+        try { allowed = _canCommence(); }
+        catch (Exception ex)
+        {
+            // Inventory evaluation failure is unknown, not confirmed zero-supply. Keep the CE
+            // deadline rather than blocking on a diagnostic failure.
+            Svc.Log.Warning($"[BozjaBuddyReborn] CE commence supply gate failed open: {ex.Message}");
+            allowed = true;
+        }
+
+        if (allowed)
+        {
+            if (_commenceHeldForSupply)
+                Svc.Log.Information("[BozjaBuddyReborn] Critical survival supply recovered; CE Commence released.");
+            _commenceHeldForSupply = false;
+            return false;
+        }
+
+        Status = "生存用の回復手段が完全に枯渇しているため「戦闘突入」を保留しています。補給でき次第すぐ突入します。";
+        if (!_commenceHeldForSupply)
+        {
+            _commenceHeldForSupply = true;
+            Svc.Log.Warning("[BozjaBuddyReborn] Holding CE Commence because survival supply is critically empty.");
+            DiagnosticsRecorder.Warning(Status, ControllerState.Blocked);
+        }
+        return true;
+    }
 
     /// <summary>Drive one tick. Framework thread only - it touches agents and addons.</summary>
     public unsafe void Tick()
@@ -204,13 +152,11 @@ public sealed class SignUpRunner
         if (!Active || !Svc.Framework.IsInFrameworkUpdateThread)
             return;
 
-        // Preconditions the old version did not have at all: it would drive agents during a
-        // loading screen, from Gangos, or on a box that was already in the engagement.
         if (Svc.Objects.LocalPlayer == null ||
             Svc.Condition[ConditionFlag.BetweenAreas] ||
             Svc.Condition[ConditionFlag.BetweenAreas51] ||
             Svc.Condition[ConditionFlag.OccupiedInCutSceneEvent])
-            return; // transient - wait it out rather than failing
+            return;
 
         if (!FieldState.InFieldZone)
         {
@@ -218,19 +164,7 @@ public sealed class SignUpRunner
             return;
         }
 
-        // NOT a "you are already in one, stop" test any more, and making it one broke the second
-        // half of the flow outright.
-        //
-        // RegisteredEventId is DynamicEventContainer.CurrentEventIndex >= 0, and that goes true
-        // when you REGISTER, not when you are deployed - the container starts naming the
-        // engagement as soon as you are associated with it. So on the very first tick after a
-        // successful Register press this cancelled the attempt with "Already in engagement #N",
-        // which is why sign-up worked and Commence never happened. The container is still the
-        // right success signal; it is simply not a precondition once we are underway. It is
-        // checked once, at Begin, and after that only as the outcome of Commencing.
-
         var now = Environment.TickCount64;
-
         if (now - _startedMs > AttemptTimeoutMs)
         {
             Cancel($"Sign-up gave up after {AttemptTimeoutMs / 1000}s in phase {Phase}. Buttons: {ButtonList()}.");
@@ -243,11 +177,8 @@ public sealed class SignUpRunner
 
         try
         {
-            // A confirmation, if the game raises one, is the last step of whichever click we just
-            // made - so it is answered before anything else.
             if (AnswerConfirmation())
                 return;
-
             Step();
         }
         catch (Exception ex)
@@ -257,23 +188,9 @@ public sealed class SignUpRunner
         }
     }
 
-    /// <summary>Prompts that belong to this flow, matched case-insensitively as substrings.</summary>
     private static readonly string[] ConfirmationPhrases =
         ["critical engagement", "deployment", "deploy", "register", "commence", "クリティカルエンゲージメント", "戦闘突入"];
 
-    /// <summary>
-    /// Answer a Yes/No prompt raised by one of our own clicks.
-    ///
-    /// DELIBERATELY NARROW, because the previous version of this was the worst thing in the file:
-    /// it took the FIRST Yes/No addon it could find, anywhere, on the very first tick of the
-    /// attempt - before the agent was even fetched and before anything had been clicked - clicked
-    /// Yes without ever reading the prompt, force-enabling the button through its own disabled
-    /// guard, and then reported "Signed up and confirmed". Pressing "sign up all" with any
-    /// unrelated prompt on screen therefore answered it, on every box at once.
-    ///
-    /// So: only after one of our clicks has actually gone out, only for a prompt whose text is
-    /// about this flow, and never through a disabled button.
-    /// </summary>
     private unsafe bool AnswerConfirmation()
     {
         if (_clicks == 0)
@@ -318,7 +235,7 @@ public sealed class SignUpRunner
     {
         var agentModule = AgentModule.Instance();
         if (agentModule == null)
-            return; // UI not up yet; transient
+            return;
 
         var agent = (AgentMycBattleAreaInfo*)agentModule->GetAgentByInternalId(RecruitmentAgent);
         if (agent == null)
@@ -328,11 +245,6 @@ public sealed class SignUpRunner
         }
 
         var iface = (AgentInterface*)agent;
-
-        // ONE Show, LATCHED. The old code called Show() on every 350ms step where the agent was
-        // not yet active, with no latch and no cap - so a window that failed to come up, or one
-        // that a bad callback closed again, produced a Show roughly three times a second for the
-        // whole attempt. That is the reported "it just spams the window".
         if (!iface->IsAgentActive())
         {
             if (!_showRequested)
@@ -344,10 +256,6 @@ public sealed class SignUpRunner
                 return;
             }
 
-            // A window that has closed under us mid-flow is normal - pressing Register can close
-            // it, and so can the player. Re-ask on a slow cadence rather than failing, because
-            // the Commence press has to happen at that window whether or not anything closed it.
-            // Capped so a window that genuinely cannot open still ends the attempt.
             if (PhaseAgeMs > OpenTimeoutMs)
             {
                 if (Phase is SignUpPhase.AwaitingSelection && _reopens < MaxReopens)
@@ -362,13 +270,9 @@ public sealed class SignUpRunner
 
                 Cancel("The Resistance Recruitment window did not open.");
             }
-
             return;
         }
 
-        // The agent knows its own addon id, so the addon never has to be looked up by a name we
-        // are not sure of. ("MYCBattleAreaInfo" was taken from the game's shipped ULD filename
-        // list, which is not the same thing as a runtime addon name.)
         var addonId = iface->GetAddonId();
         var atkManager = RaptureAtkUnitManager.Instance();
         var addon = addonId == 0 || atkManager == null
@@ -378,26 +282,19 @@ public sealed class SignUpRunner
         if (addon == null || !addon->IsVisible || addon->UldManager.LoadedState != AtkLoadState.Loaded)
         {
             _readySinceMs = 0;
-
             if (PhaseAgeMs > OpenTimeoutMs)
                 Cancel("The Resistance Recruitment window did not finish loading.");
             else
                 Status = Loc.T("Waiting for the Resistance Recruitment window.", "ボズヤファインダーの表示を待っています。");
-
             return;
         }
 
-        // LET IT SETTLE BEFORE TOUCHING IT. "Loaded and visible" is not the same as "the rows have
-        // been populated": the crash was reported while switching from one engagement to another,
-        // which rebuilds the list, and a button can exist and read as enabled before the game has
-        // attached its event. Waiting a beat after the window becomes ready costs nothing against
-        // a phase measured in minutes.
         if (_readySinceMs == 0)
             _readySinceMs = Environment.TickCount64;
 
         if (Environment.TickCount64 - _readySinceMs < WindowSettleMs)
         {
-            Status = "Waiting for the recruitment list to populate.";
+            Status = "参加リストの表示を待っています。";
             return;
         }
 
@@ -410,15 +307,12 @@ public sealed class SignUpRunner
             case SignUpPhase.Opening:
                 Advance(SignUpPhase.Registering, Loc.T("Looking for the Register button.", "「参加希望」ボタンを探しています。"));
                 goto case SignUpPhase.Registering;
-
             case SignUpPhase.Registering:
                 StepRegister(addon, buttons);
                 break;
-
             case SignUpPhase.AwaitingSelection:
                 StepAwaitSelection(addon, buttons);
                 break;
-
             case SignUpPhase.Commencing:
                 StepCommencing(buttons);
                 break;
@@ -431,24 +325,19 @@ public sealed class SignUpRunner
     {
         if (Settling)
         {
-            Status = "Waiting for the button to update.";
+            Status = "ボタン表示の更新を待っています。";
             return;
         }
 
-        // Selected already (we were registered before this attempt started, and the lottery has
-        // run): skip straight to the second click.
         if (Find(buttons, CommenceLabels) is { } commence)
         {
-            // Only advance on a press that actually went out. A refused click means the row is
-            // not wired up yet, and advancing anyway would leave the flow waiting on a button
-            // nobody ever pressed.
+            if (HoldCommenceForCriticalSupply())
+                return;
             if (Click(addon, commence, "Commence"))
                 Advance(SignUpPhase.Commencing, Loc.T("Commencing - waiting to be deployed.", "「戦闘突入」を実行しました。転送を待っています。"));
-
             return;
         }
 
-        // Language-independent registered-state check. This avoids guessing the JP Withdraw label.
         if (CriticalEngagements.RegisteredEventId is { } registeredEventId && registeredEventId != 0)
         {
             _targetEventId = registeredEventId;
@@ -463,17 +352,18 @@ public sealed class SignUpRunner
 
         if (Find(buttons, RegisterLabels) is { } register)
         {
-            _targetEventId = FirstRegisteringEventId();
+            var first = FirstRegisteringEventId();
+            _targetEventId = _preferredEventId != 0 ? _preferredEventId : first;
+            if (_preferredEventId != 0 && first != 0 && first != _preferredEventId)
+                Svc.Log.Warning(
+                    $"[BozjaBuddyReborn] Preferred CE #{_preferredEventId} differs from the first recruitment row #{first}; " +
+                    "using the current button order for this test build. Capture callback/button diagnostics before tightening row targeting.");
 
             if (Click(addon, register, "Register"))
                 Advance(SignUpPhase.AwaitingSelection, Loc.T("Registered - waiting for the draw.", "参加申請済み - 抽選結果を待っています。"));
-
             return;
         }
 
-        // Nothing pressable. Say WHY, using the engagement list rather than guessing - "no
-        // engagement is recruiting" and "the window has no button we recognise" are completely
-        // different problems and the old code reported them identically.
         if (PhaseAgeMs <= OpenTimeoutMs)
         {
             Status = Loc.T("Waiting for a Register button.", "「参加希望」ボタンを待っています。");
@@ -489,15 +379,16 @@ public sealed class SignUpRunner
     {
         if (Settling)
         {
-            Status = "Waiting for the button to update.";
+            Status = "ボタン表示の更新を待っています。";
             return;
         }
 
         if (Find(buttons, CommenceLabels) is { } commence)
         {
+            if (HoldCommenceForCriticalSupply())
+                return;
             if (Click(addon, commence, "Commence"))
                 Advance(SignUpPhase.Commencing, Loc.T("Commencing - waiting to be deployed.", "「戦闘突入」を実行しました。転送を待っています。"));
-
             return;
         }
 
@@ -507,10 +398,6 @@ public sealed class SignUpRunner
             return;
         }
 
-        // Losing the Withdraw button without gaining a Commence means the registration lapsed and
-        // a fresh one is open. Required to PERSIST before acting: the label lags a press, so a
-        // momentary "Register" straight after our own click is the button not having caught up,
-        // and re-pressing it there would withdraw us.
         if (Find(buttons, WithdrawLabels) is null && Find(buttons, RegisterLabels) is not null)
         {
             if (_lapsedSinceMs == 0)
@@ -521,21 +408,15 @@ public sealed class SignUpRunner
                 _lapsedSinceMs = 0;
                 Advance(SignUpPhase.Registering, "Registration lapsed - trying again.");
             }
-
             return;
         }
 
         _lapsedSinceMs = 0;
-
-        Status = $"Registered - waiting for the draw ({PhaseAgeMs / 1000}s).";
+        Status = $"参加申請済み - 抽選結果を待っています（{PhaseAgeMs / 1000}秒）。";
     }
 
     private void StepCommencing(List<LabelledButton> buttons)
     {
-        // NOT "are we registered" - that was already true before the Commence press (the container
-        // starts naming the engagement at registration), so testing it here would report success
-        // for a press that did nothing at all. The press landing is observable directly: the
-        // Commence button goes away.
         if (Find(buttons, CommenceLabels) is null)
         {
             var id = CriticalEngagements.RegisteredEventId;
@@ -546,7 +427,6 @@ public sealed class SignUpRunner
             return;
         }
 
-        // Already fighting it: unambiguous, and covers the case where the window never updated.
         if (CriticalEngagements.Current(null) is { IsRunning: true } running)
         {
             Cancel($"Deployed to engagement #{running.EventId} - it is under way.");
@@ -563,18 +443,8 @@ public sealed class SignUpRunner
         Status = Loc.T("Commencing - waiting to be deployed.", "「戦闘突入」を実行しました。転送を待っています。");
     }
 
-    // ------------------------------------------------------------------ buttons
-
-    /// <summary>English labels for the one button whose text changes through the flow.</summary>
     private static readonly string[] RegisterLabels = ["register", "request deployment", "deploy", "参加希望"];
     private static readonly string[] WithdrawLabels = ["withdraw", "cancel deployment", "cancel"];
-
-    /// <summary>
-    /// Labels the second-phase button can carry. Wider than Register's on purpose: this is the
-    /// press that was reported not happening, and a label this does not recognise is
-    /// indistinguishable from no button at all - so the list is generous and every button seen is
-    /// logged whenever it changes, which is what turns "it did not commence" into a name to add.
-    /// </summary>
     private static readonly string[] CommenceLabels =
         ["commence", "enter", "join", "deploy now", "proceed", "begin", "start", "戦闘突入"];
 
@@ -597,33 +467,9 @@ public sealed class SignUpRunner
                     return b;
             }
         }
-
         return null;
     }
 
-    /// <summary>
-    /// Press a button in the recruitment window.
-    ///
-    /// THIS CRASHED THE CLIENT IN 1.0.26.0/1.0.27.0 AND THE REASON IS WORTH KEEPING. It used
-    /// ECommons' convenience overload, whose whole body is:
-    ///
-    ///     addon-&gt;ReceiveEvent(evt-&gt;State.EventType, (int)evt-&gt;Param, btnRes.AtkEventManager.Event);
-    ///
-    /// AtkUnitBase.ReceiveEvent takes a FOURTH parameter, AtkEventData*, and that call leaves it
-    /// null. Most addons never touch it, which is why that overload works everywhere else in
-    /// ECommons - but AddonMYCBattleAreaInfo.ReceiveEvent dereferences it. The crash dump is
-    /// unambiguous: an access violation reading address 6 inside
-    /// Client::UI::AddonMYCBattleAreaInfo.ReceiveEvent+0x5E, i.e. a null pointer plus a small
-    /// field offset, with ClickAddonButton directly above it on the stack. Registering had worked
-    /// before because the code path taken inside ReceiveEvent depends on the event type and
-    /// param; switching engagements took a path that reads the event data.
-    ///
-    /// So the press now goes through the full component path, which is what a real click does:
-    /// a constructed AtkEvent naming the button as target and the addon as listener, plus a real
-    /// (empty) input-data buffer instead of a null. Every pointer between here and there is
-    /// checked first - an access violation is a process kill, not an exception, so a try/catch
-    /// around this would catch nothing. Guarding has to be preventive.
-    /// </summary>
     private unsafe bool Click(AtkUnitBase* addon, LabelledButton target, string what)
     {
         if (addon == null)
@@ -640,9 +486,8 @@ public sealed class SignUpRunner
             return false;
         }
 
-        // The button's own attached event tells us which event the game expects. No event means
-        // the row is not wired up yet - which happens while the list rebuilds, exactly the moment
-        // the crash was reported in.
+        // Use the event the game attached to the button. A half-built list row can have a visible
+        // button with no event yet; refusing that frame is safer than inventing a callback.
         var evt = ownerNode->AtkResNode.AtkEventManager.Event;
         if (evt == null)
         {
@@ -650,8 +495,8 @@ public sealed class SignUpRunner
             return false;
         }
 
-        // Prefer an explicit click event if the chain carries one. Bounded, because a corrupt or
-        // circular chain must not hang the framework thread.
+        // Prefer a click event in the bounded chain. API15 exposes AtkEventType here; the
+        // ECommons UIInput EventType alias is only used at the final invocation boundary.
         var chosen = evt;
         var node = evt;
         for (var i = 0; i < 16 && node != null; i++)
@@ -662,36 +507,32 @@ public sealed class SignUpRunner
                 chosen = node;
                 break;
             }
-
             node = node->NextEvent;
         }
 
+        // Register -> Withdraw -> Commence is one physical button whose label changes after the
+        // click. Do not permit a second click until the UI has caught up or Register can turn into
+        // an accidental Withdraw. _clicks also scopes confirmation handling to prompts we caused.
         _clicks++;
         _clickSettleUntilMs = Environment.TickCount64 + ClickSettleMs;
         Svc.Log.Information(
             $"[BozjaBuddyReborn] Sign-up: clicking \"{target.Text}\" as {what} " +
             $"(click {_clicks}, event type {chosen->State.EventType}, param {chosen->Param}).");
 
+        // MYCBattleAreaInfo dereferences the input-data path; the convenience ReceiveEvent call
+        // with a null fourth argument has previously crashed the client. Recreate a real component
+        // click with concrete event/input data instead.
         using var eventData = EventData.ForNormalTarget(ownerNode, addon);
         using var inputData = InputData.Empty();
-
         ClickHelper.InvokeReceiveEvent(
             &addon->AtkEventListener,
             (EventType)chosen->State.EventType,
             chosen->Param,
             eventData,
             inputData);
-
         return true;
     }
 
-    /// <summary>
-    /// Every enabled, visible button in the window, with its label.
-    ///
-    /// Walks into component nodes as well as the top-level list, because the rows of a list addon
-    /// are components in their own right and their buttons do not appear in the addon's own node
-    /// list.
-    /// </summary>
     private static unsafe List<LabelledButton> CollectButtons(AtkUnitBase* addon)
     {
         var found = new List<LabelledButton>();
@@ -706,11 +547,6 @@ public sealed class SignUpRunner
         {
             if (mgr == null || depth > 6 || found.Count > 64)
                 return;
-
-            // A manager that has not finished loading has a node list that is still being built,
-            // so walking it reads half-initialised entries. This is the same class of hazard as
-            // the click crash: preventive checks only, because an access violation here kills the
-            // client rather than raising something catchable.
             if (mgr->LoadedState != AtkLoadState.Loaded || mgr->NodeList == null)
                 return;
 
@@ -720,8 +556,6 @@ public sealed class SignUpRunner
                 var node = mgr->NodeList[i];
                 if (node == null || !node->IsVisible())
                     continue;
-
-                // Component nodes are typed at 1000 and above; anything below is a leaf.
                 if ((ushort)node->Type < 1000)
                     continue;
 
@@ -744,8 +578,8 @@ public sealed class SignUpRunner
         {
             try
             {
-                var text = button->ButtonTextNode;
-                return text == null ? string.Empty : text->NodeText.ToString();
+                var textNode = button->ButtonTextNode;
+                return textNode == null ? string.Empty : textNode->NodeText.ToString();
             }
             catch
             {
@@ -754,48 +588,41 @@ public sealed class SignUpRunner
         }
     }
 
-    private static List<string> Describe(List<LabelledButton> buttons)
+    private static IReadOnlyList<string> Describe(List<LabelledButton> buttons)
     {
-        var labels = new List<string>(buttons.Count);
+        var result = new List<string>(buttons.Count);
         foreach (var b in buttons)
-            if (b.Text.Length > 0)
-                labels.Add(b.Text);
-        return labels;
+            result.Add(b.Text);
+        return result;
     }
 
     private string ButtonList() => LastButtons.Count == 0 ? "none" : string.Join(", ", LastButtons);
 
-    private string _loggedButtons = string.Empty;
-
-    /// <summary>
-    /// Log the window's button labels whenever the set changes.
-    ///
-    /// This is the record that answers "why did it not commence" without another round trip: if
-    /// the second-phase button is present under a label not in CommenceLabels - a different
-    /// wording, or any non-English client - it appears here verbatim at the moment it appears.
-    /// Logged on change rather than per tick so it stays readable.
-    /// </summary>
     private void LogButtonsIfChanged()
     {
         var current = ButtonList();
-        if (current == _loggedButtons)
+        if (string.Equals(current, _loggedButtons, StringComparison.Ordinal))
             return;
-
         _loggedButtons = current;
-        Svc.Log.Information($"[BozjaBuddyReborn] Sign-up [{Phase}]: window buttons now: {current}");
+        Svc.Log.Information($"[BozjaBuddyReborn] Sign-up: visible buttons = [{current}].");
     }
 
-    // ------------------------------------------------------------- engagements
-
-    /// <summary>Is any engagement in this zone actually taking names right now?</summary>
     private static bool AnyRegistering() => FirstRegisteringEventId() != 0;
 
     private static ushort FirstRegisteringEventId()
     {
-        foreach (var ce in CriticalEngagements.Read(null))
-            if (ce.IsJoinable)
-                return ce.EventId;
-
-        return 0;
+        try
+        {
+            ushort best = 0;
+            foreach (var ce in CriticalEngagements.Read(null))
+            {
+                if (!ce.IsJoinable)
+                    continue;
+                if (best == 0 || ce.EventId < best)
+                    best = ce.EventId;
+            }
+            return best;
+        }
+        catch { return 0; }
     }
 }

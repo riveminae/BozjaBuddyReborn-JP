@@ -4,6 +4,7 @@ using System.Numerics;
 using BozjaBuddyReborn.External;
 using BozjaBuddyReborn.Game;
 using BozjaBuddyReborn.Multibox;
+using BozjaBuddyReborn.Relic;
 using Dalamud.Game.ClientState.Conditions;
 using ECommons.DalamudServices;
 using FFXIVClientStructs.FFXIV.Client.Game.InstanceContent;
@@ -46,6 +47,8 @@ public sealed class BozjaController
     private readonly CombatDirector _director;
     private readonly CombatApproach _approach;
     private readonly HolsterDriver _holster;
+    private readonly SupplyManager _supplies;
+    private readonly SupplyRecoveryDriver _supplyRecovery;
     private readonly MultiboxLink _link;
     private readonly NavmeshIpc _navmesh;
     private readonly RegionResolver _regions;
@@ -53,6 +56,10 @@ public sealed class BozjaController
     private readonly LoadoutDriver _loadouts;
     private readonly SignUpRunner _signUps;
     private readonly PartySupportDriver _partySupport;
+    private readonly RelicFarmCoordinator _relicFarm;
+    private readonly DeathRecoveryDriver _deathRecovery;
+    private readonly DependencySupervisor _dependencies;
+    private readonly SafeStopCoordinator _safeStop = new();
 
     private long _arrivedAtMs;
     private bool _reportedArrival;
@@ -85,13 +92,16 @@ public sealed class BozjaController
         CombatDirector director,
         CombatApproach approach,
         HolsterDriver holster,
+        SupplyManager supplies,
         MultiboxLink link,
         NavmeshIpc navmesh,
         RegionResolver regions,
         ErrandRunner errands,
         LoadoutDriver loadouts,
         SignUpRunner signUps,
-        PartySupportDriver partySupport)
+        PartySupportDriver partySupport,
+        DeathRecoveryDriver deathRecovery,
+        DependencySupervisor dependencies)
     {
         _config = config;
         _catalog = catalog;
@@ -100,6 +110,8 @@ public sealed class BozjaController
         _director = director;
         _approach = approach;
         _holster = holster;
+        _supplies = supplies;
+        _supplyRecovery = new SupplyRecoveryDriver(movement);
         _link = link;
         _navmesh = navmesh;
         _regions = regions;
@@ -107,6 +119,9 @@ public sealed class BozjaController
         _loadouts = loadouts;
         _signUps = signUps;
         _partySupport = partySupport;
+        _deathRecovery = deathRecovery;
+        _dependencies = dependencies;
+        _relicFarm = new RelicFarmCoordinator(config, new RelicTracker());
     }
 
     /// <summary>The zone third the character is standing in right now.</summary>
@@ -116,12 +131,35 @@ public sealed class BozjaController
     public ControllerState State { get; private set; } = ControllerState.Idle;
     public string Status { get; private set; } = "Stopped.";
     public SharedObjective CurrentObjective => _lastObjective;
+    public string TravelRoute => _movement.RouteDescription;
+    public FieldTravelMode TravelMode => _movement.TravelMode;
+    public bool LifestreamAvailable => _movement.LifestreamAvailable;
+    public int RouteBlacklistCount => _selector.RouteBlacklistedFateCount;
+
+    /// <summary>Last framework-tick survival inventory evaluation; UI reads this cache only.</summary>
+    public SupplyStatus SupplyStatus { get; private set; } = new(false, false, false, 0, 0, 0, 0, []);
 
     /// <summary>Live engagement snapshot from the last tick, for the UI.</summary>
     public IReadOnlyList<CeSnapshot> Engagements { get; private set; } = [];
 
     public void Start()
     {
+        if (Svc.Objects.LocalPlayer == null)
+        {
+            Running = false;
+            State = ControllerState.Blocked;
+            Status = "ログイン後に開始してください。";
+            return;
+        }
+
+        if (!FieldState.InFieldZone)
+        {
+            Running = false;
+            State = ControllerState.Blocked;
+            Status = "南方ボズヤ戦線またはザトゥノル高原の中で開始してください。";
+            return;
+        }
+
         Running = true;
         _reportedArrival = false;
         _committed = false;
@@ -129,6 +167,11 @@ public sealed class BozjaController
         _arrivedAtMs = 0;
         _lastAttackerMs = 0;
         _director.Resync();
+        _dependencies.Reset();
+        _safeStop.Reset();
+        _selector.ClearRouteBlacklist();
+        _supplyRecovery.Reset();
+        _deathRecovery.CancelAndRestore();
         _holster.Reset();
         ResetYieldState();
 
@@ -137,7 +180,7 @@ public sealed class BozjaController
         // before - and with the GO still latched, straight past the arrival barrier.
         _link.ResetObjective();
 
-        Status = "Starting.";
+        Status = "開始処理中です。";
 
         if (_config.MultiboxEnabled && _config.MultiboxIsHost)
             _link.BroadcastRunState(true);
@@ -156,7 +199,7 @@ public sealed class BozjaController
         _dodgeAnswer = false;
     }
 
-    public void Stop(string reason = "Stopped.")
+    public void Stop(string reason = "停止しました。")
     {
         Running = false;
         State = ControllerState.Idle;
@@ -165,9 +208,11 @@ public sealed class BozjaController
         _approach.Release();
         _movement.Stop();
         _director.ReleaseControl();
+        _supplyRecovery.Reset();
+        _deathRecovery.CancelAndRestore();
 
         // A sign-up outlived Stop, so a stopped box carried on driving the recruitment window.
-        _signUps.Cancel("Stopped.");
+        _signUps.Cancel("停止しました。");
 
         _lastObjective = SharedObjective.None;
         _reportedArrival = false;
@@ -210,7 +255,7 @@ public sealed class BozjaController
         if (_signUps.Active)
         {
             _signUps.Tick();
-            LastCommandResult = $"Sign-up: {_signUps.Status}";
+            LastCommandResult = $"参加申請: {_signUps.Status}";
         }
 
         // OPERATOR ERRANDS RUN WHETHER OR NOT THE ORCHESTRATOR IS. That is the entire point of
@@ -230,7 +275,7 @@ public sealed class BozjaController
 
             if (Svc.Condition[ConditionFlag.Unconscious] || Svc.Objects.LocalPlayer?.CurrentHp == 0)
             {
-                _errands.Cancel("Errand abandoned - the character died.");
+                _errands.Cancel("キャラクターが戦闘不能になったため移動指示を中止しました。");
                 return;
             }
 
@@ -250,7 +295,7 @@ public sealed class BozjaController
 
         if (Svc.Objects.LocalPlayer == null)
         {
-            Status = "Not logged in.";
+            Status = "ログイン状態を確認できません。";
             State = ControllerState.Blocked;
             return;
         }
@@ -262,19 +307,24 @@ public sealed class BozjaController
             Svc.Condition[ConditionFlag.WatchingCutscene78])
         {
             State = ControllerState.Blocked;
-            Status = "Zoning / cutscene.";
+            Status = "エリア移動またはカットシーン終了を待っています。";
             return;
         }
 
-        // DEAD. There was no death handling at all before this, and Bozja kills you regularly.
-        // Everything below assumes a living character that can move and fight, and the state
-        // carried across a corpse run is actively harmful: a stale _committed made the runner
-        // stop 30y+ short of the objective it was returning to (see the leash), and a stale
-        // _reportedArrival meant the multibox barrier was never told this box had left.
-        if (Svc.Condition[ConditionFlag.Unconscious] || Svc.Objects.LocalPlayer?.CurrentHp == 0)
+        // Timed unattended death recovery. TextAdvance is enabled only for the corpse window and
+        // restored after revival. CE deaths never cast Return while the CE remains live; a committed
+        // skirmish gets a 30s raise window and travel/idle gets 10s.
+        var dead = Svc.Condition[ConditionFlag.Unconscious] || Svc.Objects.LocalPlayer?.CurrentHp == 0;
+        if (dead)
         {
+            var currentWhileDead = CriticalEngagements.Current(_catalog);
+            var inLiveCe = currentWhileDead is { } deadCe && deadCe.IsLive;
+            var diedDuringSkirmish = _lastObjective.Kind == ObjectiveKind.Fate
+                                     && (_committed || State is ControllerState.Engaged or ControllerState.Holding);
+            var recovery = _deathRecovery.Tick(true, inLiveCe, diedDuringSkirmish);
+
             State = ControllerState.Blocked;
-            Status = "Dead - waiting for a raise or a return to the base camp.";
+            Status = recovery.JapaneseStatus;
             _committed = false;
             _returning = false;
             _reportedArrival = false;
@@ -282,45 +332,137 @@ public sealed class BozjaController
             _approach.Release();
             _movement.Stop();
             _director.Travel(_config.UseBossModAvoidance);
+
+            if (recovery.Fatal)
+                Stop(recovery.JapaneseStatus);
             return;
         }
+
+        // A live-again tick is what restores TextAdvance to the exact state it had before death.
+        _deathRecovery.Tick(false, false, false);
 
         if (!FieldState.InFieldZone)
         {
-            State = ControllerState.Blocked;
-            Status = $"Not in a Bozja field zone (in {BozjaZones.Name(Svc.ClientState.TerritoryType)}).";
-            _director.Disengage();
-            _approach.Release();
-            _movement.Stop();
+            Stop("対応エリア外へ移動したため自動周回を停止しました。");
             return;
         }
 
-        if (!_navmesh.Available)
+        var dependency = _dependencies.Snapshot();
+        if (!dependency.Ready)
         {
             State = ControllerState.Blocked;
-            Status = "vnavmesh is not installed - movement is unavailable.";
+            _movement.Stop();
+
+            // Waiting for a required plugin must not turn into a free death. The survivability
+            // driver remains allowed while unmounted; its own mounted invariant prevents a heal
+            // from dismounting the character during travel.
+            _holster.Tick(inCombat: Svc.Condition[ConditionFlag.InCombat]);
+
+            if (dependency.Health == DependencyHealth.WaitingRequired)
+            {
+                Status = $"必須プラグインとの接続が失われました: {dependency.MissingText}。" +
+                         $"復帰を待っています（残り{Math.Ceiling(dependency.Remaining.TotalSeconds):F0}秒）。";
+                return;
+            }
+
+            var safeStop = _safeStop.Tick(Svc.Condition[ConditionFlag.InCombat]);
+            Status = safeStop.JapaneseStatus + $" ({dependency.MissingText})";
+            if (safeStop.StopNow)
+                Stop(Status);
             return;
         }
+
+        // A recovered dependency cancels any pending pre-stop Return state.
+        _safeStop.Reset();
 
         if (!_navmesh.MeshReady)
         {
             State = ControllerState.Blocked;
             var progress = _navmesh.BuildProgress;
             Status = progress >= 0
-                ? $"Building navmesh for this zone ({progress * 100f:F0}%)."
-                : "Waiting for the zone navmesh.";
+                ? $"このエリアのnavmeshを構築中です（{progress * 100f:F0}%）。"
+                : "このエリアのnavmeshを待っています。";
             return;
         }
 
         Engagements = CriticalEngagements.Read(_catalog);
         CurrentRegion = FieldRegions.Current();
 
+        // The first Relic target is always manual. Once that explicit target becomes satisfied,
+        // advance inside the current territory before CE/FATE selection. Existing sticky-objective
+        // permission checks decide whether the current skirmish remains valid for the new target.
+        var relicUpdate = _relicFarm.Tick(Svc.ClientState.TerritoryType);
+        if (relicUpdate.Stop)
+        {
+            Stop(relicUpdate.JapaneseStatus);
+            return;
+        }
+        if (relicUpdate.ChangedTarget)
+        {
+            Svc.Log.Information(
+                $"[BozjaBuddyReborn] Resistance Relic farm target advanced from item {relicUpdate.PreviousItemId} to {relicUpdate.CurrentItemId}.");
+        }
+
+        // Critical Engagements are a remote UI workflow, not a travel objective. Register while
+        // continuing the current skirmish; SignUpRunner will press Commence immediately if this
+        // box wins the draw. This is intentionally before objective selection.
+        TickAutomaticCeRegistration();
+
+        // Cache supply on the framework tick for both arbitration and UI. This deliberately
+        // happens before live-CE dispatch so the main window remains informative during a CE; the
+        // CE branch below still returns before any refill decision can run.
+        SupplyStatus = _supplies.Evaluate();
+
         // --- already registered and fighting -------------------------------
         var current = CriticalEngagements.Current(_catalog);
         if (current is { } ce && ce.IsLive)
         {
+            _supplyRecovery.Reset();
             RunEngagement(ce);
             return;
+        }
+
+        // Q54C/Q63A/Q109C: complete loss of both Potion Kit protection and a usable
+        // self-heal is the one supply state severe enough to abandon the current skirmish
+        // immediately. Registration keeps running above this block; if the lottery selects this
+        // box, SignUpRunner independently holds Commence until the same supply predicate clears.
+        var supply = SupplyStatus;
+        if (supply.InventoryAvailable && supply.CriticalNoRecovery)
+        {
+            if (!_supplies.CanAttemptCriticalRecovery(supply))
+            {
+                Stop("回復手段が完全に枯渇し、Lost Finds Cacheにも補充候補がないため停止しました。");
+                DiagnosticsRecorder.Warning("回復手段が完全に枯渇し、Cache在庫もないため自動周回を停止しました。");
+                return;
+            }
+
+            RunCriticalSupplyRecovery(supply);
+            return;
+        }
+
+        // Routine low-watermark refill never abandons a skirmish that we have already
+        // reached and committed to. Once that skirmish ends, or if we had only been travelling
+        // toward a fresh one, supply wins before another objective is selected. CE registration
+        // continues above this block and a selected CE is still free to Commence immediately
+        // because SignUpRunner only holds Commence for CriticalNoRecovery.
+        if (supply.InventoryAvailable
+            && supply.NeedsRoutineRefill
+            && _supplies.CanAttemptRoutineRefill(supply))
+        {
+            var finishingCurrentSkirmish = _lastObjective.Kind == ObjectiveKind.Fate
+                                           && _committed
+                                           && IsObjectiveStillWorthDoing(_lastObjective);
+            if (!finishingCurrentSkirmish)
+            {
+                RunRoutineSupplyRecovery(supply);
+                return;
+            }
+        }
+
+        if (_supplyRecovery.Active && !supply.NeedsRoutineRefill)
+        {
+            Svc.Log.Information("[BozjaBuddyReborn] Survival supply recovered above low-water marks; returning to normal objective selection.");
+            _supplyRecovery.Reset();
         }
 
         // --- decide what to do next ----------------------------------------
@@ -332,9 +474,9 @@ public sealed class BozjaController
             // The farm filter's own explanation beats a generic "nothing available" - being in
             // the wrong zone for the material you are chasing is the failure worth naming.
             var reason = _config.MultiboxEnabled && !_config.MultiboxIsHost
-                ? "Waiting for the host to pick an objective."
+                ? "ホストが次の目的地を選択するのを待っています。"
                 : _selector.FarmFilterNote
-                  ?? "No engagement or skirmish available.";
+                  ?? "現在参加可能なCEまたはスカーミッシュがありません。";
 
             _director.Travel(_config.UseBossModAvoidance);
             RunIdle(reason);
@@ -361,6 +503,100 @@ public sealed class BozjaController
         RunTravel(objective);
     }
 
+    private void RunCriticalSupplyRecovery(SupplyStatus supply)
+    {
+        State = ControllerState.Travelling;
+
+        // The skirmish is intentionally abandoned, not merely paused. After recovery the selector
+        // performs a fresh ranking, so we do not run back across the zone to a stale nearly-finished
+        // objective just because it was the one being fought when stock hit zero.
+        _lastObjective = SharedObjective.None;
+        _reportedArrival = false;
+        _committed = false;
+        _returning = false;
+        _arrivedAtMs = 0;
+
+        _approach.Release();
+        _director.Travel(_config.UseBossModAvoidance);
+
+        // On foot, any surviving defensive option may still save the trip. HolsterDriver has an
+        // absolute mounted guard, so this can never dismiss a travel mount or start combat.
+        _holster.TickTravelSurvival();
+
+        _supplyRecovery.Tick();
+        Status = _supplyRecovery.Status;
+
+        if (_supplyRecovery.CacheOpened)
+        {
+            var cache = _supplies.InspectCacheAndLatch(supply);
+            if (cache.InventoryAvailable && !cache.CanRecoverCritical)
+            {
+                Svc.Log.Warning("[BozjaBuddyReborn] Critical recovery stock is absent from Lost Finds Cache for this field instance; stopping instead of retrying base trips.");
+                Stop("回復手段が完全に枯渇し、Lost Finds Cacheにも補充候補がないため停止しました。");
+                DiagnosticsRecorder.Warning("回復手段が完全に枯渇し、Cache在庫もないため自動周回を停止しました。");
+                return;
+            }
+        }
+
+        if (supply.Reasons.Count > 0)
+            Svc.Log.Debug($"[BozjaBuddyReborn] Critical supply recovery: {string.Join("; ", supply.Reasons)}.");
+    }
+
+    private void RunRoutineSupplyRecovery(SupplyStatus supply)
+    {
+        State = ControllerState.Travelling;
+
+        // Routine recovery is entered only when no committed live skirmish remains, so it is safe
+        // to forget any stale/travel-only objective and let selection start fresh after refill.
+        _lastObjective = SharedObjective.None;
+        _reportedArrival = false;
+        _committed = false;
+        _returning = false;
+        _arrivedAtMs = 0;
+
+        _approach.Release();
+        _director.Travel(_config.UseBossModAvoidance);
+        _holster.TickTravelSurvival();
+
+        _supplyRecovery.Tick(critical: false);
+        Status = _supplyRecovery.Status;
+
+        if (_supplyRecovery.CacheOpened)
+        {
+            var cache = _supplies.InspectCacheAndLatch(supply);
+            if (cache.InventoryAvailable && !cache.CanImproveRoutine)
+            {
+                Svc.Log.Warning("[BozjaBuddyReborn] Requested routine survival stock is absent from Lost Finds Cache for this field instance; suppressing repeated base trips.");
+                _supplyRecovery.Reset();
+                Status = "Lost Finds Cacheにも現在不足している補給候補がないため、このインスタンスでは再補給を繰り返さず周回を続けます。";
+                DiagnosticsRecorder.Warning("Cache在庫がない補給候補をこのインスタンスでは再試行しません。");
+                return;
+            }
+        }
+
+        if (supply.Reasons.Count > 0)
+            Svc.Log.Debug($"[BozjaBuddyReborn] Routine supply recovery: {string.Join("; ", supply.Reasons)}.");
+    }
+
+    private void TickAutomaticCeRegistration()
+    {
+        if (!_config.DoCriticalEngagements || _signUps.Active)
+            return;
+
+        // Once registered, the existing SignUpRunner owns the lottery/Commence state. Starting
+        // a second attempt here would reopen the window and risk withdrawing the first one.
+        if (CriticalEngagements.RegisteredEventId is { } registered && registered != 0)
+            return;
+
+        var selected = _selector.SelectRegistration(Engagements, deterministic: _config.MultiboxEnabled);
+        if (selected is not { } ce)
+            return;
+
+        _signUps.Begin(ce.EventId);
+        Svc.Log.Information(
+            $"[BozjaBuddyReborn] Auto-registering remotely for CE #{ce.EventId} \"{ce.Name}\"; no travel to CE marker required.");
+    }
+
     // ------------------------------------------------------------- engagement
 
     private void RunEngagement(CeSnapshot ce)
@@ -372,14 +608,14 @@ public sealed class BozjaController
             ObjectiveKind.CriticalEngagement, ce.EventId, ce.Position, Svc.ClientState.TerritoryType));
 
         var region = FieldRegions.Label(Svc.ClientState.TerritoryType, CurrentRegion);
-        Status = $"In \"{ce.Name}\" ({region}) - {ce.StateText}, {ce.Progress}% " +
-                 $"({ce.Participants}/{ce.MaxParticipants}).";
+        Status = $"「{ce.Name}」で戦闘中（{region}）- {Loc.CeState(ce.State)} / 進行度 {ce.Progress}% " +
+                 $"（{ce.Participants}/{ce.MaxParticipants}人）。";
 
         // You cannot attack from a mount, so the rotation must not be armed until we are
         // grounded - otherwise RSR has nothing it can press and looks like it is doing nothing.
         if (!Mount.EnsureDismounted())
         {
-            Status = $"In \"{ce.Name}\" - dismounting.";
+            Status = $"「{ce.Name}」で戦闘するためマウントから降りています。";
             _approach.Release();
             _director.Travel(_config.UseBossModAvoidance);
             return;
@@ -396,8 +632,8 @@ public sealed class BozjaController
         // by itself, in which case the approach stands down and BossMod owns combat movement.)
         if (_approach.Tick(IsDodging(), _director.AvoidanceOwnsApproach) && _approach.ClosingOn is { } closing)
         {
-            Status = $"In \"{ce.Name}\" ({region}) - closing on {closing} " +
-                     $"({_approach.ShortfallYalms:F0}y out of range).";
+            Status = $"「{ce.Name}」で戦闘中（{region}）- {closing}へ接近中 " +
+                     $"（射程まであと{_approach.ShortfallYalms:F0}y）。";
         }
 
         _holster.Tick(Svc.Condition[ConditionFlag.InCombat]);
@@ -419,7 +655,7 @@ public sealed class BozjaController
 
         if (!_config.UseIdleSpot)
         {
-            Status = $"{reason} Holding position.";
+            Status = $"{reason} その場で待機します。";
             _movement.Stop();
             return;
         }
@@ -442,18 +678,29 @@ public sealed class BozjaController
 
         var region = restricted != FieldRegionId.Unknown ? restricted : CurrentRegion;
 
-        if (region == FieldRegionId.Unknown || !TryGetIdleSpot(territory, region, out var spot))
+        // v1.1 stages at the field aethernet whenever possible. A Relic restriction picks
+        // a node classified inside that exact region; ordinary idle uses the nearest node. This
+        // lets the same BOCCHI router exploit the aethernet instantly when the next activity pops.
+        Vector3 spot;
+        string label;
+        if (TryGetAethernetIdleSpot(territory, region, out spot, out var aethernetLabel))
         {
-            Status = $"{reason} Holding position.";
+            label = aethernetLabel;
+        }
+        else if (region != FieldRegionId.Unknown && TryGetIdleSpot(territory, region, out spot))
+        {
+            label = FieldRegions.Label(territory, region);
+        }
+        else
+        {
+            Status = $"{reason} その場で待機します。";
             _movement.Stop();
             return;
         }
 
-        var label = FieldRegions.Label(territory, region);
-
         if (_movement.HasArrived(spot, _config.IdleArriveRange))
         {
-            Status = $"{reason} Waiting in {label}.";
+            Status = $"{reason} {label}で待機しています。";
             _movement.Stop();
             return;
         }
@@ -464,14 +711,74 @@ public sealed class BozjaController
         // keeps the character walking through the mechanic.
         if (IsDodging())
         {
-            Status = $"{reason} Yielding to BossMod - dodging a mechanic.";
+            Status = $"{reason} BossModへ移動制御を渡してギミックを回避しています。";
             _movement.Suspend();
             return;
         }
 
-        _movement.TravelTo(spot, _config.IdleArriveRange);
-        Status = $"{reason} Moving to the {label} staging point " +
-                 $"({Movement.DistanceToPlayer(spot):F0}y).";
+        _movement.TravelTo(spot, _config.IdleArriveRange, waitForOptionalDependencies: true);
+        if (_movement.TravelMode == FieldTravelMode.WaitingForLifestream)
+        {
+            Status = $"{reason} Lifestreamの復帰を最大30秒待っています。";
+            return;
+        }
+
+        Status = $"{reason} 待機地点 {label} へ移動中 " +
+                 $"（残り {Movement.DistanceToPlayer(spot):F0}y）。";
+    }
+
+    /// <summary>Choose an aethernet node for idle staging, resolving its actual navmesh floor.</summary>
+    private bool TryGetAethernetIdleSpot(
+        uint territory,
+        FieldRegionId preferredRegion,
+        out Vector3 spot,
+        out string label)
+    {
+        spot = Vector3.Zero;
+        label = string.Empty;
+        var nodes = FieldAethernet.ForTerritory(territory);
+        if (nodes.Count == 0)
+            return false;
+
+        FieldAethernet.Node? best = null;
+        var bestDistance = float.MaxValue;
+        foreach (var node in nodes)
+        {
+            // For a Relic/region restriction, never choose a node confidently belonging to a
+            // different region. The base camp is allowed only if its own position classifies into
+            // the requested region. Unknown classification is not trusted for a restricted farm.
+            if (preferredRegion != FieldRegionId.Unknown
+                && FieldRegions.ClassifyByPosition(territory, node.Position) != preferredRegion)
+                continue;
+
+            var distance = Movement.DistanceToPlayer(node.Position);
+            if (best == null || distance < bestDistance)
+            {
+                best = node;
+                bestDistance = distance;
+            }
+        }
+
+        if (best is not { } selected)
+            return false;
+
+        var grounded = _navmesh.ResolveGroundPoint(selected.Position.X, selected.Position.Z);
+        if (grounded == Vector3.Zero)
+            grounded = selected.Position;
+        spot = grounded;
+
+        try
+        {
+            var place = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.PlaceName>()?
+                .GetRowOrDefault(selected.PlaceNameId)?.Name.ExtractText();
+            label = string.IsNullOrWhiteSpace(place) ? "エーテライト" : place;
+        }
+        catch
+        {
+            label = "エーテライト";
+        }
+
+        return true;
     }
 
     /// <summary>Resolve a configured staging point to a ground position, cached per key.</summary>
@@ -785,7 +1092,7 @@ public sealed class BozjaController
         if (IsDodging())
         {
             State = ControllerState.Travelling;
-            Status = "Yielding to BossMod - dodging a mechanic.";
+            Status = "BossModに移動制御を渡してギミックを回避しています。";
             _approach.Release();
             _movement.Suspend();
             _director.Travel(_config.UseBossModAvoidance);
@@ -804,9 +1111,13 @@ public sealed class BozjaController
             // it back BEFORE issuing the travel path, never after.
             _approach.Release();
 
+            // On-foot survival may use instant Lost Actions. The driver has an absolute mounted
+            // guard, so this can never be the reason a travelling mount is dismissed.
+            _holster.TickTravelSurvival();
+
             if (!_movement.TravelTo(destination, range))
             {
-                Status = "vnavmesh could not start a path.";
+                Status = "vnavmeshで経路を開始できませんでした。";
                 return;
             }
 
@@ -816,9 +1127,40 @@ public sealed class BozjaController
             // this used to present as a silent hang while the repath counter climbed.
             if (_movement.Stuck)
             {
-                Status = $"Stuck en route to {Describe(objective)} ({distance:F0}y) - no progress " +
-                         $"for {_movement.SecondsWithoutProgress:F0}s across {_movement.RepathCount} " +
-                         "re-paths. vnavmesh may not be able to reach it from here.";
+                var failedRepaths = _movement.RepathCount;
+                var failedSeconds = _movement.SecondsWithoutProgress;
+
+                if (objective.Kind == ObjectiveKind.Fate)
+                {
+                    _selector.BlacklistFateForCurrentSpawn(objective.Id);
+                    Svc.Log.Warning(
+                        $"[BozjaBuddyReborn] Route to skirmish FateId {objective.Id} remained stuck after " +
+                        $"{failedRepaths} repaths / {failedSeconds:F0}s without progress; blacklisting this live spawn.");
+                    DiagnosticsRecorder.Warning(
+                        $"スカーミッシュ #{objective.Id} への経路を確立できなかったため、この出現中は除外します。",
+                        ControllerState.Travelling);
+                    Status = $"スカーミッシュ #{objective.Id} へ到達できないため、この出現中は除外して次の対象を探します。";
+                }
+                else
+                {
+                    Svc.Log.Warning(
+                        $"[BozjaBuddyReborn] Route to objective {objective.Kind} #{objective.Id} remained stuck after " +
+                        $"{failedRepaths} repaths / {failedSeconds:F0}s without progress; abandoning the objective.");
+                    DiagnosticsRecorder.Warning(
+                        "現在の目的地へ到達できないため、対象を解除して再選択します。",
+                        ControllerState.Travelling);
+                    Status = "現在の目的地へ到達できないため、対象を解除して再選択します。";
+                }
+
+                _movement.Stop();
+                _approach.Release();
+                _director.Travel(_config.UseBossModAvoidance);
+                _lastObjective = SharedObjective.None;
+                _committed = false;
+                _returning = false;
+                _reportedArrival = false;
+                _arrivedAtMs = 0;
+                _arrivalNote = null;
                 return;
             }
 
@@ -826,25 +1168,25 @@ public sealed class BozjaController
             // deliberately not fighting back - that reads as a broken rotation otherwise.
             if (attackers > 0)
             {
-                Status = $"Travelling to {Describe(objective)} ({distance:F0}y) - outrunning " +
-                         $"{attackers} attacker{(attackers == 1 ? "" : "s")}, not stopping to fight.";
+                Status = $"{Describe(objective)}へ移動中（残り{distance:F0}y）- " +
+                         $"{attackers}体に追跡されていますが、停止せず逃走を継続します。";
                 return;
             }
 
             if (_movement.AvoidingEnemy is { } enemy)
             {
-                Status = $"Travelling to {Describe(objective)} ({distance:F0}y) - " +
-                         $"routing around {enemy.Name} (Lv{enemy.Level}).";
+                Status = $"{Describe(objective)}へ移動中 ({distance:F0}y) - " +
+                         $"危険な敵 {enemy.Name} [{enemy.Strength switch { Game.FieldEnemyStrength.IV => "IV", Game.FieldEnemyStrength.V => "V", Game.FieldEnemyStrength.Star => "★", _ => "?" }}] を迂回中。";
                 return;
             }
 
-            Status = $"Travelling to {Describe(objective)} ({distance:F0}y" +
-                     (_movement.RepathCount > 0 ? $", {_movement.RepathCount} repaths" : "") +
-                     (_movement.RejectedIssues > 0 ? $", {_movement.RejectedIssues} refused" : "") +
+            Status = $"{Describe(objective)}へ移動中 ({distance:F0}y / {_movement.RouteDescription}" +
+                     (_movement.RepathCount > 0 ? $", 再経路 {_movement.RepathCount}" : "") +
+                     (_movement.RejectedIssues > 0 ? $", 経路要求拒否 {_movement.RejectedIssues}回" : "") +
                      // Detours that were needed and could not be used. Worth naming: this is the
                      // difference between "the route was clear" and "the route was not clear and
                      // we walked it anyway", which used to read identically.
-                     (_movement.RefusedDetours > 0 ? $", {_movement.RefusedDetours} detours refused" : "") +
+                     (_movement.RefusedDetours > 0 ? $", 迂回失敗 {_movement.RefusedDetours}回" : "") +
                      ").";
             return;
         }
@@ -865,7 +1207,7 @@ public sealed class BozjaController
         // long way, that distinction matters - the character may be standing outside the arena
         // it was aiming for - so say so rather than reporting a clean arrival.
         _arrivalNote = _movement.SnapDrift > range
-            ? $" Arrived as close as the navmesh allows - {_movement.SnapDrift:F0}y from the marker centre."
+            ? $" navmeshで到達可能な最寄り地点に到着しました（マーカー中心から{_movement.SnapDrift:F0}y）。"
             : null;
 
         if (!IsReleasedToCommit())
@@ -900,20 +1242,20 @@ public sealed class BozjaController
         // Cannot fight from a mount, so this has to land before the rotation is armed.
         if (!Mount.EnsureDismounted())
         {
-            Status = "Under attack - dismounting to fight back.";
+            Status = "攻撃を受けています。反撃のためマウントから降りています。";
             _approach.Release();
             _director.Travel(_config.UseBossModAvoidance);
             return;
         }
 
-        Status = $"Under attack ({attackers}) - clearing before continuing to {Describe(objective)}.";
+        Status = $"{attackers}体から攻撃されています。{Describe(objective)}への移動再開前に排除します。";
 
         _director.Engage(_config.UseBossModAvoidance);
 
         // Most things that aggro are already on top of us, but a ranged puller is not, and
         // standing still swinging at nothing is the same failure as everywhere else.
         if (_approach.Tick(IsDodging(), _director.AvoidanceOwnsApproach) && _approach.ClosingOn is { } closing)
-            Status = $"Under attack ({attackers}) - closing on {closing}.";
+            Status = $"{attackers}体から攻撃されています。{closing}へ接近中です。";
 
         _holster.Tick(inCombat: true);
     }
@@ -938,7 +1280,7 @@ public sealed class BozjaController
                 // Not changed yet: it needs one live check (see CeSnapshot.IsJoinable), and
                 // guessing wrong in this direction would break the one CE path that people may
                 // currently be relying on.
-                Status = $"At {Describe(objective)} - waiting to be registered.{_arrivalNote}";
+                Status = $"{Describe(objective)}付近で参加処理を待っています。{_arrivalNote}";
                 _approach.Release();
                 _director.Travel(_config.UseBossModAvoidance);
                 break;
@@ -946,7 +1288,7 @@ public sealed class BozjaController
             case ObjectiveKind.Fate:
                 if (!TargetSelector.FateIsActive(objective.Id))
                 {
-                    Status = "Skirmish finished - picking the next objective.";
+                    Status = "スカーミッシュが終了しました。次の対象を選択します。";
                     _lastObjective = SharedObjective.None;
                     _approach.Release();
                     _director.Travel(_config.UseBossModAvoidance);
@@ -956,21 +1298,21 @@ public sealed class BozjaController
                 // Grounded first - a mounted character cannot fight.
                 if (!Mount.EnsureDismounted())
                 {
-                    Status = $"At {Describe(objective)} - dismounting.";
+                    Status = $"{Describe(objective)}で戦闘するためマウントから降りています。";
                     _approach.Release();
                     _director.Travel(_config.UseBossModAvoidance);
                     return;
                 }
 
-                Status = $"Fighting {Describe(objective)}.";
+                Status = $"{Describe(objective)}で戦闘中です。";
                 _director.Engage(_config.UseBossModAvoidance);
 
                 // Arriving inside a skirmish ring is not the same as being on top of its mobs -
                 // the ring is tens of yalms across - so the approach matters most here.
                 if (_approach.Tick(IsDodging(), _director.AvoidanceOwnsApproach) && _approach.ClosingOn is { } closing)
                 {
-                    Status = $"Fighting {Describe(objective)} - closing on {closing} " +
-                             $"({_approach.ShortfallYalms:F0}y out of range).";
+                    Status = $"{Describe(objective)}で戦闘中 - {closing}へ接近しています " +
+                             $"（射程まであと{_approach.ShortfallYalms:F0}y）。";
                 }
 
                 _holster.Tick(Svc.Condition[ConditionFlag.InCombat]);
@@ -1020,6 +1362,7 @@ public sealed class BozjaController
         // re-broadcast to the whole group every tick in the meantime. Stickiness exists to stop
         // the runner being yanked off a fight it is already in, not to outrank the filter.
         if (_config.StickyObjective
+            && _lastObjective.Kind != ObjectiveKind.CriticalEngagement
             && IsObjectiveStillWorthDoing(_lastObjective)
             && _selector.StillPermitted(_lastObjective.Kind, _lastObjective.Id, _lastObjective.Position))
         {
@@ -1110,7 +1453,7 @@ public sealed class BozjaController
                 _link.ReportArrived();
             }
 
-            Status = $"At {Describe(_lastObjective)} - waiting for the group.";
+            Status = $"{Describe(_lastObjective)}に到着済み - グループを待っています。";
             return false;
         }
 
@@ -1126,7 +1469,7 @@ public sealed class BozjaController
             return true;
         }
 
-        Status = $"At {Describe(_lastObjective)} - waiting for group ({arrived}/{peers} arrived).";
+        Status = $"{Describe(_lastObjective)}に到着済み - グループ待機中（{arrived}/{peers}到着）。";
         return false;
     }
 
@@ -1150,7 +1493,7 @@ public sealed class BozjaController
                     Start();
                     break;
                 case "STOP" when Running:
-                    Stop("Stopped by the multibox host.");
+                    Stop("マルチボックスのホストから停止されました。");
                     break;
             }
         }
@@ -1175,18 +1518,18 @@ public sealed class BozjaController
 
             case BoxVerb.Stop:
                 if (Running)
-                    Stop("Stopped from the multibox panel.");
+                    Stop("マルチボックス操作画面から停止されました。");
                 break;
 
             case BoxVerb.Loadout:
                 if (Loadout.TryDecode(command.Arg, out var a0, out var a1, out var ess))
                 {
                     _loadouts.Apply(a0, a1, ess);
-                    LastCommandResult = $"Loadout: {_loadouts.LastResult}";
+                    LastCommandResult = $"ロストアクション構成: {Loc.Runtime(_loadouts.LastResult)}";
                 }
                 else
                 {
-                    LastCommandResult = "Loadout: could not read the requested actions.";
+                    LastCommandResult = "ロストアクション構成: 指定内容を読み取れませんでした。";
                 }
                 break;
 
@@ -1198,7 +1541,7 @@ public sealed class BozjaController
                     _approach.Release();
                     _movement.Stop();
                     _errands.Begin(dataId);
-                    LastCommandResult = $"Errand: {_errands.Status}";
+                    LastCommandResult = $"移動指示: {_errands.Status}";
                 }
                 break;
 
@@ -1208,29 +1551,29 @@ public sealed class BozjaController
                 // - including ones in Gangos, ones already in the engagement, and ones on a
                 // loading screen - to go and poke UI agents.
                 if (CriticalEngagements.RegisteredEventId is { } joined)
-                    LastCommandResult = $"Sign-up: already in engagement #{joined}.";
+                    LastCommandResult = $"参加申請: 既にイベント #{joined} へ参加中です。";
                 else if (!FieldState.InFieldZone)
                     LastCommandResult =
-                        $"Sign-up: not in a field zone (in {BozjaZones.Name(Svc.ClientState.TerritoryType)}).";
+                        $"参加申請: 対応フィールド外です（現在地: {BozjaZones.Name(Svc.ClientState.TerritoryType)}）。";
                 else
                 {
                     _signUps.Begin();
-                    LastCommandResult = $"Sign-up: {_signUps.Status}";
+                    LastCommandResult = $"参加申請: {_signUps.Status}";
                 }
                 break;
 
             case BoxVerb.Cancel:
-                _errands.Cancel("Cancelled from the multibox panel.");
-                _signUps.Cancel("Cancelled from the multibox panel.");
-                LastCommandResult = "Errand cancelled.";
+                _errands.Cancel("マルチボックス操作画面から中止されました。");
+                _signUps.Cancel("マルチボックス操作画面から中止されました。");
+                LastCommandResult = "移動指示を中止しました。";
                 break;
 
             case BoxVerb.PartySupport:
                 if (command.Arg == "1")
                     _partySupport.Begin();
                 else
-                    _partySupport.Stop("Party support stopped from the panel.");
-                LastCommandResult = $"Party support: {_partySupport.Status}";
+                    _partySupport.Stop("マルチボックス操作画面からパーティ支援を停止しました。");
+                LastCommandResult = $"パーティ支援: {_partySupport.Status}";
                 break;
 
             case BoxVerb.DutyAction:
@@ -1244,11 +1587,11 @@ public sealed class BozjaController
                 if (BoxCommand.TryDecodeDutyAction(command.Arg, out var dutySlot, out var expectedAction))
                 {
                     var press = DutyActions.Press(dutySlot, expectedAction);
-                    LastCommandResult = $"Duty action {dutySlot + 1}: {press.Message}";
+                    LastCommandResult = $"Duty Action {dutySlot + 1}: {press.Message}";
                 }
                 else
                 {
-                    LastCommandResult = "Duty action: could not read which slot to press.";
+                    LastCommandResult = "Duty Action: 使用するスロットを読み取れませんでした。";
                 }
                 break;
         }
@@ -1343,15 +1686,15 @@ public sealed class BozjaController
     private string Describe(SharedObjective objective)
     {
         if (!objective.IsSet)
-            return "nothing";
+            return "目的地なし";
 
         if (objective.Kind == ObjectiveKind.CriticalEngagement)
-            return $"CE \"{_catalog.Name((ushort)objective.Id)}\"";
+            return $"CE「{_catalog.Name((ushort)objective.Id)}」";
 
         foreach (var fate in Svc.Fates)
             if (fate != null && fate.FateId == objective.Id)
-                return $"skirmish \"{fate.Name.TextValue}\"";
+                return $"スカーミッシュ「{fate.Name.TextValue}」";
 
-        return $"skirmish #{objective.Id}";
+        return $"スカーミッシュ #{objective.Id}";
     }
 }

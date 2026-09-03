@@ -47,11 +47,11 @@ public sealed class ErrandRunner(Movement movement, NavmeshIpc navmesh)
         _startedMs = Environment.TickCount64;
         _lastInteractMs = 0;
         Active = true;
-        Status = $"Looking for the nearest {Interactables.Label(dataId)}.";
+        Status = $"最寄りの {Interactables.Label(dataId)} を探しています。";
     }
 
     /// <summary>Abandon the errand and hand movement back.</summary>
-    public void Cancel(string reason = "Errand cancelled.")
+    public void Cancel(string reason = "移動指示を中止しました。")
     {
         if (!Active)
             return;
@@ -70,7 +70,7 @@ public sealed class ErrandRunner(Movement movement, NavmeshIpc navmesh)
 
         if (Environment.TickCount64 - _startedMs > TimeoutMs)
         {
-            Cancel($"Gave up reaching the {Interactables.Label(_dataId)} after 90s.");
+            Cancel($"{Interactables.Label(_dataId)} へ90秒以内に到達できなかったため中止しました。");
             return;
         }
 
@@ -84,7 +84,7 @@ public sealed class ErrandRunner(Movement movement, NavmeshIpc navmesh)
             // Nothing streamed nearby. Worth saying plainly rather than silently walking nowhere:
             // these objects are fixed, so "not visible" means the box is in the wrong part of the
             // zone entirely and no amount of waiting will help.
-            Cancel($"No {Interactables.Label(_dataId)} in range of this box.");
+            Cancel($"このクライアントの周辺に {Interactables.Label(_dataId)} が見つかりません。");
             return;
         }
 
@@ -104,22 +104,25 @@ public sealed class ErrandRunner(Movement movement, NavmeshIpc navmesh)
             if (Interactables.Interact(obj))
             {
                 Active = false;
-                Status = $"Interacted with the {Interactables.Label(_dataId)}.";
+                Status = $"{Interactables.Label(_dataId)} を操作しました。";
             }
             else
             {
-                Status = $"At the {Interactables.Label(_dataId)} - the game refused the interaction, retrying.";
+                Status = $"{Interactables.Label(_dataId)} に到着しましたが操作が受理されなかったため再試行します。";
             }
             return;
         }
 
         if (!_navmesh.Available || !_navmesh.MeshReady)
         {
-            Cancel("vnavmesh is not ready, so the errand cannot travel.");
+            Cancel("vnavmeshの準備ができていないため移動指示を中止しました。");
             return;
         }
 
-        _movement.TravelTo(obj.Position, InteractRange - 0.5f);
-        Status = $"Walking to the {Interactables.Label(_dataId)} ({distance:F0}y).";
+        _movement.TravelTo(
+            obj.Position,
+            InteractRange - 0.5f,
+            waitForOptionalDependencies: true);
+        Status = $"{Interactables.Label(_dataId)} へ移動中（残り{distance:F0}y）。";
     }
 }

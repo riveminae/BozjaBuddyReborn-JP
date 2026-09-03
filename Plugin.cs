@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Numerics;
 using BozjaBuddyReborn.Automation;
 using BozjaBuddyReborn.External;
 using BozjaBuddyReborn.Game;
@@ -6,6 +8,7 @@ using BozjaBuddyReborn.Multibox;
 using BozjaBuddyReborn.Relic;
 using BozjaBuddyReborn.Windows;
 using Dalamud.Game.Command;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using ECommons;
@@ -33,21 +36,29 @@ public sealed class Plugin : IDalamudPlugin
     private readonly CeCatalog _catalog = new();
     private readonly LostActionCatalog _lostActions = new();
     private readonly RelicTracker _relicTracker = new();
+    private readonly CharacterRelicStateStore _characterRelicState;
 
     private readonly NavmeshIpc _navmesh;
     private readonly CombatDirector _director;
+    private readonly DependencySupervisor _dependencies;
+    private readonly TextAdvanceIpc _textAdvance;
+    private readonly DeathRecoveryDriver _deathRecovery;
     private readonly MultiboxLink _link = new();
     private readonly AggroAvoidance _aggroAvoidance;
     private readonly Movement _movement;
+    private readonly MycItemBoxCallbackProbe _mycItemBoxProbe;
     private readonly CombatApproach _approach;
     private readonly RegionResolver _regions;
     private readonly TargetSelector _selector;
     private readonly HolsterDriver _holster;
+    private readonly LostItemBoxInventory _lostItemInventory;
+    private readonly SupplyManager _supplies;
     private readonly ErrandRunner _errands;
     private readonly LoadoutDriver _loadoutDriver;
     private readonly SignUpRunner _signUps;
     private readonly PartySupportDriver _partySupport;
     private readonly BozjaController _controller;
+    private readonly SocialRequestGuard _socialRequests;
 
     private readonly DutyActionSync _dutySync;
 
@@ -58,6 +69,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MultiboxerWindow _multiboxerWindow;
 
     private bool _multiboxStarted;
+    private long _debugOverlayScanMs;
+    private List<DangerZone> _debugOverlayDangerZones = [];
 
     /// <summary>Last known character name, announced over the multibox pipe. See SyncMultiboxLink.</summary>
     private string _selfName = "unknown";
@@ -66,27 +79,40 @@ public sealed class Plugin : IDalamudPlugin
     {
         ECommonsMain.Init(pluginInterface, this);
 
-        _config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        _config = ConfigRecovery.Load(pluginInterface);
+        _characterRelicState = new CharacterRelicStateStore(_config);
 
         _navmesh = new NavmeshIpc(pluginInterface);
         _director = new CombatDirector(pluginInterface, _config);
+        _dependencies = new DependencySupervisor(_navmesh, _director);
+        _textAdvance = new TextAdvanceIpc(pluginInterface);
+        _deathRecovery = new DeathRecoveryDriver(_textAdvance);
         _aggroAvoidance = new AggroAvoidance(_config);
-        _movement = new Movement(_navmesh, _config, _aggroAvoidance);
+        _movement = new Movement(_navmesh, _config, _aggroAvoidance, pluginInterface);
+        _mycItemBoxProbe = new MycItemBoxCallbackProbe(_config);
         _approach = new CombatApproach(_navmesh, _config);
         _regions = new RegionResolver(_config);
-        _selector = new TargetSelector(_catalog, _config, _regions);
+        _selector = new TargetSelector(_catalog, _config, _regions, _movement);
         _holster = new HolsterDriver(_config, _lostActions);
+        _lostItemInventory = new LostItemBoxInventory(_lostActions);
+        _supplies = new SupplyManager(_config, _lostActions, _lostItemInventory);
         _errands = new ErrandRunner(_movement, _navmesh);
         _loadoutDriver = new LoadoutDriver(_lostActions);
-        _signUps = new SignUpRunner();
+
+        // Registration itself is always immediate and remote. Only the second-phase Commence is
+        // gated, and only for the one Q109C exception: confirmed complete loss of Potion Kit
+        // protection AND usable self-healing. An unavailable inventory read is not critical in
+        // SupplyManager, so this fails open rather than sacrificing a CE to uncertain telemetry.
+        _signUps = new SignUpRunner(() => !_supplies.Evaluate().CriticalNoRecovery);
         _partySupport = new PartySupportDriver(_config, _lostActions);
 
         _controller = new BozjaController(
-            _config, _catalog, _selector, _movement, _director, _approach, _holster, _link, _navmesh, _regions,
-            _errands, _loadoutDriver, _signUps, _partySupport);
+            _config, _catalog, _selector, _movement, _director, _approach, _holster, _supplies, _link, _navmesh, _regions,
+            _errands, _loadoutDriver, _signUps, _partySupport, _deathRecovery, _dependencies);
+        _socialRequests = new SocialRequestGuard(_config, () => _controller.Running);
 
         _mainWindow = new MainWindow(_config, _controller, _director, _navmesh, _link, _catalog) { IsOpen = false };
-        _configWindow = new ConfigWindow(_config, _lostActions, _regions, _aggroAvoidance)
+        _configWindow = new ConfigWindow(_config, _lostActions, _regions, _aggroAvoidance, _supplies)
         {
             IsOpen = false,
             OnIdleSpotsChanged = () => _controller.InvalidateIdleSpots(),
@@ -108,6 +134,7 @@ public sealed class Plugin : IDalamudPlugin
         _windows.AddWindow(_multiboxerWindow);
 
         pluginInterface.UiBuilder.Draw += _windows.Draw;
+        pluginInterface.UiBuilder.Draw += DrawDebugWorldOverlay;
         pluginInterface.UiBuilder.OpenMainUi += OpenMain;
         pluginInterface.UiBuilder.OpenConfigUi += OpenConfig;
 
@@ -133,6 +160,125 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OpenMain() => _mainWindow.IsOpen = true;
     private void OpenConfig() => _configWindow.IsOpen = true;
+
+    /// <summary>TEST-only world-space diagnostics; never affects movement or selection.</summary>
+    private void DrawDebugWorldOverlay()
+    {
+        if (!_config.DebugWorldOverlay || !FieldState.InFieldZone)
+            return;
+
+        var me = Svc.Objects.LocalPlayer;
+        if (me == null)
+            return;
+
+        var now = Environment.TickCount64;
+        if (now - _debugOverlayScanMs >= 500)
+        {
+            _debugOverlayScanMs = now;
+            _debugOverlayDangerZones = _aggroAvoidance.Scan(140f);
+        }
+
+        var draw = ImGui.GetForegroundDrawList();
+        var routeColour = ImGui.GetColorU32(new Vector4(0.25f, 0.80f, 1.00f, 0.90f));
+        var teleportColour = ImGui.GetColorU32(new Vector4(0.75f, 0.45f, 1.00f, 0.90f));
+        var goalColour = ImGui.GetColorU32(new Vector4(0.30f, 1.00f, 0.45f, 0.95f));
+        var dangerColour = ImGui.GetColorU32(new Vector4(1.00f, 0.25f, 0.20f, 0.80f));
+        var marginColour = ImGui.GetColorU32(new Vector4(1.00f, 0.75f, 0.20f, 0.55f));
+
+        var goal = _movement.DebugRouteGoal;
+        if (goal == Vector3.Zero && _controller.CurrentObjective.IsSet)
+            goal = _controller.CurrentObjective.Position;
+
+        if (_movement.DebugRouteDeparture is { } departure)
+        {
+            DrawWorldLine(me.Position, departure, routeColour, 2.5f);
+            DrawWorldLabel(departure, $"出発Aethernet #{_movement.DebugRouteDeparturePlaceNameId}", routeColour);
+
+            if (_movement.DebugRouteInbound is { } inbound)
+            {
+                DrawWorldLine(departure, inbound, teleportColour, 2.0f);
+                DrawWorldLabel(inbound, $"到着Aethernet #{_movement.DebugRouteInboundPlaceNameId}", teleportColour);
+                if (goal != Vector3.Zero)
+                    DrawWorldLine(inbound, goal, routeColour, 2.5f);
+            }
+        }
+        else if (goal != Vector3.Zero)
+        {
+            DrawWorldLine(me.Position, goal, routeColour, 2.5f);
+        }
+
+        if (goal != Vector3.Zero)
+            DrawWorldLabel(goal, $"目的地 / {_movement.TravelMode}", goalColour);
+
+        foreach (var zone in _debugOverlayDangerZones)
+            DrawDangerZone(zone, dangerColour, marginColour);
+
+        return;
+
+        void DrawDangerZone(DangerZone zone, uint danger, uint margin)
+        {
+            DrawWorldCircle(zone.Position, zone.ProximityRadius, danger, 2.0f);
+
+            // Sight cone: radius arc plus the two radial edges.
+            const int ArcSegments = 20;
+            var previous = Vector3.Zero;
+            for (var i = 0; i <= ArcSegments; i++)
+            {
+                var t = i / (float)ArcSegments;
+                var angle = zone.Rotation - zone.ConeHalfAngleRad + t * zone.ConeHalfAngleRad * 2f;
+                var point = zone.Position + new Vector3(MathF.Sin(angle), 0f, MathF.Cos(angle)) * zone.SightRadius;
+                if (i > 0)
+                    DrawWorldLine(previous, point, danger, 1.8f);
+                previous = point;
+            }
+            var left = zone.Position + new Vector3(
+                MathF.Sin(zone.Rotation - zone.ConeHalfAngleRad), 0f,
+                MathF.Cos(zone.Rotation - zone.ConeHalfAngleRad)) * zone.SightRadius;
+            var right = zone.Position + new Vector3(
+                MathF.Sin(zone.Rotation + zone.ConeHalfAngleRad), 0f,
+                MathF.Cos(zone.Rotation + zone.ConeHalfAngleRad)) * zone.SightRadius;
+            DrawWorldLine(zone.Position, left, danger, 1.8f);
+            DrawWorldLine(zone.Position, right, danger, 1.8f);
+
+            var extra = _config.DangerClearance
+                        + (zone.Strength == FieldEnemyStrength.Star ? _config.DangerStarExtraClearance : 0f);
+            DrawWorldCircle(zone.Position, zone.OuterRadius + extra, margin, 1.2f);
+
+            var rank = zone.Strength switch
+            {
+                FieldEnemyStrength.Star => "★",
+                FieldEnemyStrength.Unknown => "?",
+                _ => ((byte)zone.Strength).ToString(),
+            };
+            DrawWorldLabel(zone.Position, $"[{rank}] {zone.Name}", danger);
+        }
+
+        void DrawWorldCircle(Vector3 center, float radius, uint colour, float thickness)
+        {
+            const int Segments = 32;
+            var previous = center + new Vector3(radius, 0f, 0f);
+            for (var i = 1; i <= Segments; i++)
+            {
+                var angle = MathF.Tau * i / Segments;
+                var current = center + new Vector3(MathF.Cos(angle) * radius, 0f, MathF.Sin(angle) * radius);
+                DrawWorldLine(previous, current, colour, thickness);
+                previous = current;
+            }
+        }
+
+        void DrawWorldLine(Vector3 a, Vector3 b, uint colour, float thickness)
+        {
+            if (Svc.GameGui.WorldToScreen(a, out var sa) && Svc.GameGui.WorldToScreen(b, out var sb))
+                draw.AddLine(sa, sb, colour, thickness);
+        }
+
+        void DrawWorldLabel(Vector3 world, string text, uint colour)
+        {
+            var raised = world + new Vector3(0f, 2.5f, 0f);
+            if (Svc.GameGui.WorldToScreen(raised, out var screen))
+                draw.AddText(screen, colour, text);
+        }
+    }
 
     private void OnCommand(string command, string args)
     {
@@ -176,6 +322,7 @@ public sealed class Plugin : IDalamudPlugin
         _movement.Stop();
         _director.Resync();
         _holster.Reset();
+        _supplies.ResetInstanceCacheAvailability();
         Mount.Reset();
         _controller.InvalidateIdleSpots();
 
@@ -203,6 +350,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnUpdate(object _)
     {
+        _characterRelicState.Tick();
         SyncCallbackLogging();
         SyncMultiboxLink();
 
@@ -242,11 +390,14 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             _controller.Tick();
+            DiagnosticsRecorder.Observe(_controller.State, _controller.Status);
         }
         catch (Exception ex)
         {
             Svc.Log.Error(ex, "[BozjaBuddyReborn] Controller tick failed; stopping for safety.");
-            _controller.Stop("Stopped after an internal error - see /xllog.");
+            _controller.Stop("内部エラーのため停止しました。/xllog を確認してください。");
+            DiagnosticsRecorder.Warning("内部エラーのためコントローラーを停止しました。");
+            DiagnosticsRecorder.Observe(_controller.State, _controller.Status);
         }
     }
 
@@ -348,12 +499,18 @@ public sealed class Plugin : IDalamudPlugin
         try { _director.ReleaseControl(); }
         catch { /* best effort */ }
 
+        try { _socialRequests.Dispose(); }
+        catch { /* best effort */ }
+
         _link.Dispose();
+        try { _mycItemBoxProbe.Dispose(); }
+        catch { /* best effort */ }
 
         Svc.Commands.RemoveHandler(CommandMain);
         Svc.Commands.RemoveHandler(CommandRelic);
 
         Svc.PluginInterface.UiBuilder.Draw -= _windows.Draw;
+        Svc.PluginInterface.UiBuilder.Draw -= DrawDebugWorldOverlay;
         Svc.PluginInterface.UiBuilder.OpenMainUi -= OpenMain;
         Svc.PluginInterface.UiBuilder.OpenConfigUi -= OpenConfig;
         _windows.RemoveAllWindows();

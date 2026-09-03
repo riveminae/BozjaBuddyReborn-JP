@@ -1588,9 +1588,9 @@
          duty action slot". This sentence is what HolsterDriver was built on.]
          Compile-verified Debug and Release (0 warnings).
     -->
-    <Version>1.0.28.1</Version>
-    <AssemblyVersion>1.0.28.1</AssemblyVersion>
-    <FileVersion>1.0.28.1</FileVersion>
+    <Version>1.0.90.2</Version>
+    <AssemblyVersion>1.0.90.2</AssemblyVersion>
+    <FileVersion>1.0.90.2</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>

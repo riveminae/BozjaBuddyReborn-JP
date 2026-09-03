@@ -1,0 +1,192 @@
+name: Build v1.1 test repository
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/bocchi-navigation
+
+concurrency:
+  group: bbr-v110-test-build
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-test:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/bocchi-navigation
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Read test version
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Every non-bot workflow run gets a monotonically increasing 1.0.90.x version.
+          # This is important for the Dalamud custom-repository updater: publishing a new ZIP
+          # under the same AssemblyVersion does not reliably offer an update to an installed test build.
+          $version = "1.0.90.${{ github.run_number }}"
+          if ($version -notmatch '^1\.0\.90\.\d+$') {
+            throw "Invalid test version '$version'. Expected 1.0.90.x."
+          }
+          "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Test version: $version"
+
+      - name: Apply timeout-safe packet patches
+        run: python tools/packets/run_all.py
+
+      - name: Verify packet idempotency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Materialise the complete working tree, including packet-created untracked files, into
+          # the temporary index and compare Git tree objects around a second packet replay. A true
+          # idempotent replay must leave byte-for-byte the same tree.
+          git add -A
+          $before = (git write-tree).Trim()
+          git reset --quiet
+
+          python tools/packets/run_all.py
+
+          git add -A
+          $after = (git write-tree).Trim()
+          git reset --quiet
+
+          if ($before -ne $after) {
+            git status --short
+            git diff --check
+            throw "Packet replay changed the working tree: before=$before after=$after"
+          }
+          Write-Host "Packet idempotency: PASS ($after)"
+
+      - name: Enforce v1.1 static contract
+        run: python tools/validate_v110_contract.py
+
+      - name: Audit visible Japanese UI
+        run: python tools/audit_visible_japanese.py
+
+      - name: Validate repository diff
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git diff --check
+          git status --short
+
+      - name: Install Dalamud dev files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dalamudDir = "$env:AppData\XIVLauncher\addon\Hooks\dev"
+          New-Item -ItemType Directory -Force -Path $dalamudDir | Out-Null
+          Invoke-WebRequest -Uri 'https://goatcorp.github.io/dalamud-distrib/latest.zip' -OutFile dalamud.zip
+          Expand-Archive -Path dalamud.zip -DestinationPath $dalamudDir -Force
+          Remove-Item dalamud.zip
+
+      - name: Restore
+        run: dotnet restore BozjaBuddyReborn.csproj
+
+      - name: Build Debug
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.value }}'
+          dotnet build BozjaBuddyReborn.csproj -c Debug --no-restore --nologo `
+            /p:Version=$version /p:AssemblyVersion=$version /p:FileVersion=$version
+
+      - name: Build Release
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.value }}'
+          dotnet build BozjaBuddyReborn.csproj -c Release --no-restore --nologo `
+            /p:Version=$version /p:AssemblyVersion=$version /p:FileVersion=$version
+
+      - name: Prepare test custom repository
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '${{ steps.version.outputs.value }}'
+          New-Item -ItemType Directory -Force -Path dist-test | Out-Null
+          Copy-Item 'bin/Release/BozjaBuddyReborn/latest.zip' 'dist-test/BozjaBuddyReborn.zip' -Force
+
+          $entry = [ordered]@{
+            Author = 'Bozja Buddy Reborn contributors / JP fork by riveminae'
+            Name = 'Bozja Buddy Reborn JP TEST'
+            InternalName = 'BozjaBuddyReborn'
+            AssemblyVersion = $version
+            TestingAssemblyVersion = $version
+            Description = 'v1.1 開発テスト版。BOCCHI方式ナビゲーション、生存制御、補給・復旧機能を段階的に検証します。Stable版repoと同時に有効化しないでください。'
+            Punchline = 'Bozja Buddy Reborn JP v1.1 実機テスト版'
+            ApplicableVersion = 'any'
+            DalamudApiLevel = 15
+            Tags = @('bozja', 'zadnor', 'automation', 'japanese', 'testing')
+            CategoryTags = @('utility')
+            RepoUrl = 'https://github.com/riveminae/BozjaBuddyReborn-JP'
+            IconUrl = ''
+            Changelog = "$version - feat/bocchi-navigation automated test build. See docs/implementation/BozjaBuddyReborn-JP_v1.1.0_progress.md."
+            IsHide = $false
+            IsTestingExclusive = $false
+            AcceptsFeedback = $true
+            DownloadLinkInstall = 'https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip'
+            DownloadLinkUpdate = 'https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip'
+            DownloadLinkTesting = 'https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip'
+          }
+          @($entry) | ConvertTo-Json -Depth 6 | Set-Content -Path pluginmaster-test.json -Encoding utf8
+
+      - name: Verify packaged assembly version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = '${{ steps.version.outputs.value }}'
+          $dll = Get-ChildItem -Path bin/Release -Recurse -Filter BozjaBuddyReborn.dll | Select-Object -First 1
+          if (-not $dll) { throw 'BozjaBuddyReborn.dll not found.' }
+          $actual = [System.Reflection.AssemblyName]::GetAssemblyName($dll.FullName).Version.ToString()
+          if ($actual -ne $expected) {
+            throw "Assembly version mismatch: expected $expected, got $actual"
+          }
+          $manifest = Get-Content pluginmaster-test.json -Raw | ConvertFrom-Json
+          if ($manifest[0].AssemblyVersion -ne $expected) {
+            throw 'Manifest version does not match source-of-truth version.'
+          }
+
+      - name: Upload test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BozjaBuddyReborn-JP-v1.1-test-${{ steps.version.outputs.value }}
+          path: |
+            bin/Release/**
+            pluginmaster-test.json
+          if-no-files-found: error
+
+      - name: Commit validated packet changes and publish test repository
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git fetch origin feat/bocchi-navigation
+          $remoteHead = (git rev-parse origin/feat/bocchi-navigation).Trim()
+          $builtHead = '${{ github.sha }}'
+          if ($remoteHead -ne $builtHead) {
+            Write-Host "Branch advanced from $builtHead to $remoteHead while this run was building; skipping stale publish."
+            exit 0
+          }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "build: validate v1.1 packet changes (${{ steps.version.outputs.value }})"
+            git push origin HEAD:feat/bocchi-navigation
+          } else {
+            Write-Host 'No validated source or published files changed.'
+          }

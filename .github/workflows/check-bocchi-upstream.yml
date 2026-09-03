@@ -1,0 +1,91 @@
+name: Check BOCCHI navigation upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check watched BOCCHI files
+        id: check
+        shell: bash
+        env:
+          PINNED_SHA: 7847b00c313d6a7ddfe9ee126e46e10f547db9da
+        run: |
+          set -euo pipefail
+          latest_sha="$(curl -fsSL https://api.github.com/repos/OhKannaDuh/BOCCHI/commits/master | jq -r .sha)"
+          if [[ -z "$latest_sha" || "$latest_sha" == "null" ]]; then
+            echo 'Unable to resolve BOCCHI master SHA.' >&2
+            exit 1
+          fi
+
+          echo "latest_sha=$latest_sha" >> "$GITHUB_OUTPUT"
+          if [[ "$latest_sha" == "$PINNED_SHA" ]]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          compare="$(curl -fsSL "https://api.github.com/repos/OhKannaDuh/BOCCHI/compare/${PINNED_SHA}...${latest_sha}")"
+          watched_re='^(BOCCHI.Common/Data/Zones/NavigationApproach.cs|BOCCHI.Common/Data/Zones/Graph/Traversal/GraphTraverser.cs|BOCCHI.Common/Data/Zones/Graph/Traversal/WalkTeleportWalkCalculator.cs|BOCCHI.Common/Data/Zones/Graph/Traversal/ReturnTeleportWalkCalculator.cs)$'
+          changed_files="$(jq -r '.files[]?.filename' <<<"$compare" | grep -E "$watched_re" || true)"
+
+          if [[ -z "$changed_files" ]]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+          {
+            echo 'files<<EOF'
+            printf '%s\n' "$changed_files"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open review issue once per upstream SHA
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        env:
+          LATEST_SHA: ${{ steps.check.outputs.latest_sha }}
+          CHANGED_FILES: ${{ steps.check.outputs.files }}
+        with:
+          script: |
+            const sha = process.env.LATEST_SHA;
+            const marker = `<!-- bocchi-upstream:${sha} -->`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              per_page: 100,
+            });
+            if (issues.some(i => i.body && i.body.includes(marker))) {
+              core.info(`Issue already exists for ${sha}.`);
+              return;
+            }
+
+            const files = process.env.CHANGED_FILES.split(/\r?\n/).filter(Boolean);
+            const body = [
+              marker,
+              'BOCCHI の vendored navigation 監視対象に upstream 差分があります。',
+              '',
+              `Pinned: \`7847b00c313d6a7ddfe9ee126e46e10f547db9da\``,
+              `Latest: \`${sha}\``,
+              '',
+              '変更対象:',
+              ...files.map(f => `- \`${f}\``),
+              '',
+              '自動マージは禁止です。差分を確認し、BBR adapter・ライセンスnotice・実機影響を確認してから pinned commit を更新してください。',
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `BOCCHI navigation upstream changed (${sha.slice(0, 8)})`,
+              body,
+            });

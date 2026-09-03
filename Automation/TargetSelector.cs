@@ -21,11 +21,50 @@ namespace BozjaBuddyReborn.Automation;
 /// the same objective without any coordination at all, because they are running the same rule
 /// over the same game state.
 /// </summary>
-public sealed class TargetSelector(CeCatalog catalog, Configuration config, RegionResolver regions)
+public sealed class TargetSelector(CeCatalog catalog, Configuration config, RegionResolver regions, Movement movement)
 {
     private readonly CeCatalog _catalog = catalog;
     private readonly Configuration _config = config;
     private readonly RegionResolver _regions = regions;
+    private readonly Movement _movement = movement;
+
+    // Route failures are scoped to a single live skirmish spawn. They are intentionally not
+    // persisted in Configuration: once the FATE disappears (or reaches completion), the same
+    // FateId is eligible again on its next spawn. This prevents one bad navmesh route from
+    // turning into an infinite unattended retry loop without permanently suppressing content.
+    private readonly HashSet<uint> _routeBlacklistedFates = [];
+
+    public int RouteBlacklistedFateCount => _routeBlacklistedFates.Count;
+
+    public void BlacklistFateForCurrentSpawn(uint fateId)
+    {
+        if (fateId != 0)
+            _routeBlacklistedFates.Add(fateId);
+    }
+
+    public void ClearRouteBlacklist() => _routeBlacklistedFates.Clear();
+
+    private void PruneRouteBlacklist()
+    {
+        if (_routeBlacklistedFates.Count == 0)
+            return;
+
+        var live = new HashSet<uint>();
+        try
+        {
+            foreach (var fate in Svc.Fates)
+                if (fate != null && fate.Progress < 100)
+                    live.Add(fate.FateId);
+        }
+        catch
+        {
+            // FATE table temporarily unavailable: keep the blacklist rather than accidentally
+            // re-enabling the exact spawn that just wedged us. The next readable tick prunes it.
+            return;
+        }
+
+        _routeBlacklistedFates.RemoveWhere(id => !live.Contains(id));
+    }
 
     /// <summary>
     /// The material being farmed, or null. Resolved once per selection pass so the region and
@@ -82,6 +121,10 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         if (kind == ObjectiveKind.None)
             return false;
 
+        PruneRouteBlacklist();
+        if (kind == ObjectiveKind.Fate && _routeBlacklistedFates.Contains(id))
+            return false;
+
         var territory = Svc.ClientState.TerritoryType;
         if (RestrictedTerritory != 0 && RestrictedTerritory != territory)
             return false;
@@ -119,15 +162,15 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         if (farm is { } target && target.Territory != territory)
         {
             FarmFilterNote =
-                $"{BozjaZones.Name(target.Territory)} is where that material drops - you are in " +
-                $"{BozjaZones.Name(territory)}.";
+                $"この素材の入手場所は {BozjaZones.Name(target.Territory)} です。現在地は " +
+                $"{BozjaZones.Name(territory)} です。";
             return Choice.None;
         }
 
         // Skirmishes and Critical Engagements in the same Zadnor plateau drop DIFFERENT items,
         // so the activity filter is checked before the objective type is even considered.
         var (_, requiredActivity) = Restriction;
-        var wantCe = _config.DoCriticalEngagements && requiredActivity != DropActivity.Skirmish;
+        var wantCe = false; // CE registration is remote; BozjaController/SignUpRunner owns it.
         var wantFate = _config.DoFates && requiredActivity != DropActivity.CriticalEngagement;
 
         if (wantCe)
@@ -146,7 +189,7 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
 
         var (restrictedRegion, _) = Restriction;
         if (restrictedRegion != FieldRegionId.Unknown && FarmFilterNote == null)
-            FarmFilterNote = $"Nothing available in {FieldRegions.Label(territory, restrictedRegion)} right now.";
+            FarmFilterNote = $"{FieldRegions.Label(territory, restrictedRegion)} に現在参加可能な対象がありません。";
 
         return Choice.None;
     }
@@ -199,6 +242,33 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
             return !_config.SkipUnknownRegions;
 
         return region == requiredRegion;
+    }
+
+    /// <summary>
+    /// Pick the single CE to register for remotely. Large-scale engagements, when explicitly
+    /// enabled, outrank every other CE; otherwise the current relic filter and configured
+    /// PriorityEngagements determine eligibility/rank.
+    /// </summary>
+    public CeSnapshot? SelectRegistration(IReadOnlyList<CeSnapshot> engagements, bool deterministic)
+    {
+        CeSnapshot? best = null;
+        var bestRank = int.MaxValue;
+
+        foreach (var ce in engagements)
+        {
+            if (!IsEligible(ce))
+                continue;
+
+            var largeScale = _catalog.IsLargeScale(ce.EventId);
+            var rank = largeScale ? int.MinValue : PriorityRank(ce.EventId);
+            if (best == null || rank < bestRank || (rank == bestRank && ce.EventId < best.Value.EventId))
+            {
+                best = ce;
+                bestRank = rank;
+            }
+        }
+
+        return best;
     }
 
     private Choice SelectEngagement(IReadOnlyList<CeSnapshot> engagements, bool deterministic)
@@ -268,10 +338,12 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         if (ce.IsDuel && !_config.EngageDuels)
             return false;
 
-        if (_catalog.IsLargeScale(ce.EventId) && !_config.EngageLargeScale)
+        var largeScale = _catalog.IsLargeScale(ce.EventId);
+        if (largeScale && !_config.EngageLargeScale)
             return false;
 
-        // The game refuses registration under 10 seconds; require enough margin to also travel.
+        // The game refuses registration under 10 seconds; remote registration still keeps a
+        // small UI margin, but no travel margin is needed any more.
         if (ce.SecondsLeft < (uint)_config.MinRegisterSecondsLeft)
             return false;
 
@@ -279,8 +351,9 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         if (!ce.HasPosition)
             return false;
 
-        // Region/activity gate for the current farm target.
-        if (!PassesFarmFilter(ObjectiveKind.CriticalEngagement, ce.EventId, ce.Position,
+        // Explicitly-enabled Castrum/Dalriada are absolute priority by requirement and bypass
+        // a Resistance Relic filter. Ordinary CEs remain constrained by the selected material.
+        if (!largeScale && !PassesFarmFilter(ObjectiveKind.CriticalEngagement, ce.EventId, ce.Position,
                 DropActivity.CriticalEngagement))
             return false;
 
@@ -294,10 +367,12 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
     /// </summary>
     private Choice SelectFate(bool deterministic)
     {
+        PruneRouteBlacklist();
+
         uint bestId = 0;
         var bestName = string.Empty;
         var bestPosition = Vector3.Zero;
-        var bestDistance = float.MaxValue;
+        var bestCost = float.MaxValue;
 
         try
         {
@@ -307,19 +382,22 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
                     continue;
 
                 // Skip one that is effectively over - joining at 100% earns nothing.
-                if (fate.Progress >= 100)
+                if (fate.Progress >= _config.NewSkirmishMaxProgress)
                     continue;
 
                 if (_config.BlockedEngagements.Contains(fate.FateId))
                     continue;
 
+                if (_routeBlacklistedFates.Contains(fate.FateId))
+                    continue;
+
                 if (!PassesFarmFilter(ObjectiveKind.Fate, fate.FateId, fate.Position, DropActivity.Skirmish))
                     continue;
 
-                var distance = Movement.DistanceToPlayer(fate.Position);
+                var cost = _movement.EstimateTravelCost(fate.Position);
 
                 var better = bestId == 0
-                    || (!deterministic && distance < bestDistance)
+                    || (!deterministic && (cost < bestCost || (cost == bestCost && fate.FateId < bestId)))
                     || (deterministic && fate.FateId < bestId);
 
                 if (!better)
@@ -328,7 +406,7 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
                 bestId = fate.FateId;
                 bestName = fate.Name.TextValue;
                 bestPosition = fate.Position;
-                bestDistance = distance;
+                bestCost = cost;
             }
         }
         catch

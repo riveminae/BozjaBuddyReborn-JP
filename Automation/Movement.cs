@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using BozjaBuddyReborn.External;
+using Dalamud.Plugin;
 using ECommons.DalamudServices;
 
 namespace BozjaBuddyReborn.Automation;
@@ -19,11 +20,13 @@ namespace BozjaBuddyReborn.Automation;
 /// leg being walked - not raw displacement, which a wedged character produces plenty of - and
 /// tears the path down for a fresh pathfind when the character stops closing the gap.
 /// </summary>
-public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoidance avoidance)
+public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoidance avoidance, IDalamudPluginInterface pluginInterface)
 {
     private readonly NavmeshIpc _navmesh = navmesh;
     private readonly Configuration _config = config;
     private readonly AggroAvoidance _avoidance = avoidance;
+    private readonly FieldTravelRouter _fieldRouter = new(new LifestreamIpc(pluginInterface), config, navmesh);
+    private readonly ManualMovementYield _manualYield = new();
 
     private Vector3 _destination = Vector3.Zero;
     private Vector3 _snapped = Vector3.Zero;
@@ -206,6 +209,17 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
     public bool MeshReady => _navmesh.MeshReady;
     public bool Busy => _navmesh.Busy;
 
+    /// <summary>High-level BOCCHI-style route currently in use.</summary>
+    public FieldTravelMode TravelMode => _fieldRouter.Mode;
+    public string RouteDescription => _fieldRouter.RouteDescription;
+    public bool LifestreamAvailable => _fieldRouter.LifestreamAvailable;
+    public bool YieldingToManualMovement => _manualYield.ShouldYield();
+    public Vector3 DebugRouteGoal => _fieldRouter.DebugGoal;
+    public Vector3? DebugRouteDeparture => _fieldRouter.DebugDeparture;
+    public Vector3? DebugRouteInbound => _fieldRouter.DebugInbound;
+    public uint DebugRouteDeparturePlaceNameId => _fieldRouter.DebugDeparturePlaceNameId;
+    public uint DebugRouteInboundPlaceNameId => _fieldRouter.DebugInboundPlaceNameId;
+
     /// <summary>Distance from the local player to a world position, ignoring height.</summary>
     public static float HorizontalDistance(Vector3 a, Vector3 b)
     {
@@ -221,6 +235,13 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
         return me == null ? float.MaxValue : HorizontalDistance(me.Position, world);
     }
 
+    /// <summary>Current BOCCHI-style yalm-equivalent cost used to rank fresh skirmish destinations.</summary>
+    public float EstimateTravelCost(Vector3 world)
+    {
+        var me = Svc.Objects.LocalPlayer;
+        return me == null ? float.MaxValue : _fieldRouter.EstimateCost(me.Position, world);
+    }
+
     /// <summary>
     /// Begin (or continue) travelling to a destination. Safe to call every tick with the same
     /// destination - it only issues a new path when the destination changes or a stall is
@@ -232,7 +253,38 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
     /// "could not start a path" diagnostic unreachable and a plugin that could not path
     /// indistinguishable from one travelling normally.
     /// </returns>
-    public bool TravelTo(Vector3 destination, float range)
+    public bool TravelTo(
+        Vector3 destination,
+        float range,
+        bool waitForOptionalDependencies = false)
+    {
+        // Direct player movement wins over both legacy and BOCCHI routing. Suspend preserves the
+        // current route/stall history while repeatedly pumping vnavmesh's global stop until the
+        // player has been quiet for the guard's three-second window. Crucially this happens before
+        // Resolve(), so pressing movement during an eligible Return route cannot trigger Return.
+        if (_manualYield.ShouldYield())
+        {
+            Suspend();
+            return true;
+        }
+
+        if (_config.LegacyMovement || !_config.UseBocchiNavigation)
+            return TravelDirectTo(destination, range);
+
+        var directive = _fieldRouter.Resolve(destination, range, waitForOptionalDependencies);
+        if (directive.HoldMovement)
+        {
+            // A teleport is process-global movement just like vnavmesh.  Never leave our old
+            // path walking underneath it; unlike Stop(), this intentionally keeps router state.
+            if (_navmesh.OwnedBy(NavClient.Travel))
+                _navmesh.Stop(NavClient.Travel);
+            return true;
+        }
+
+        return TravelDirectTo(directive.Destination, directive.Range);
+    }
+
+    private bool TravelDirectTo(Vector3 destination, float range)
     {
         if (!_navmesh.Available || !_navmesh.MeshReady)
             return false;
@@ -307,8 +359,8 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
 
         EvaluateAvoidance(me.Position, now);
 
-        // Long haul still ahead: get mounted. Bozja and Zadnor have no aetherytes, so this is
-        // the only fast travel there is.
+        // Long ground haul still ahead: get mounted. Higher-level routing may have split
+        // the trip at an in-zone aethernet node before this direct leg is issued.
         Mount.EnsureMounted(_config, remaining);
 
         var legTarget = IsDetouring ? _detour : _snapped;
@@ -443,7 +495,7 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
         // is what the old code did - meant a refused request still overwrote _leg, so legChanged
         // went false, the throttle engaged, and the stale path walked the character to the
         // destination we had just abandoned with every recovery condition suppressed.
-        if (!_navmesh.MoveCloseTo(legTarget, legRange, Mount.ShouldFly(_config.AllowFlight), NavClient.Travel))
+        if (!_navmesh.MoveCloseTo(legTarget, legRange, false, NavClient.Travel))
         {
             // A REFUSAL IS A FAILURE, and it used to be recorded as the opposite. Zeroing _leg
             // made legChanged read as new intent forever after, which permanently disabled the
@@ -641,6 +693,12 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
         if (me == null)
             return false;
 
+        // While walking to a departure shard or waiting on Lifestream, the direct Movement
+        // basis names that intermediate leg.  It must never make the controller believe the
+        // final activity has been reached.
+        if (!_config.LegacyMovement && _fieldRouter.IsRoutingTo(destination) && !_fieldRouter.OnFinalLeg)
+            return false;
+
         var target = _basisSnapped != Vector3.Zero && HorizontalDistance(destination, _basisRaw) <= 1f
             ? _basisSnapped
             : destination;
@@ -666,6 +724,8 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
     /// </summary>
     public void Stop()
     {
+        _fieldRouter.Reset();
+
         // Cheap when there is genuinely nothing to stop - the controller calls this every tick
         // while holding at an objective. This is the ORIGINAL early-return's purpose, kept, but
         // it now tests whether we ever had a path rather than testing fields we are about to
@@ -680,6 +740,7 @@ public sealed class Movement(NavmeshIpc navmesh, Configuration config, AggroAvoi
         _bestRemaining = float.MaxValue;
         _suspended = false;
         _forceReissue = false;
+        _manualYield.Reset();
         ClearDetour();
 
         if (!hadPath)

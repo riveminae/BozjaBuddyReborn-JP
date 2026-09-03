@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using BozjaBuddyReborn.Game;
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Game.ClientState.Conditions;
@@ -13,6 +14,9 @@ public readonly record struct DangerZone(
     ulong ObjectId,
     string Name,
     byte Level,
+    FieldEnemyStrength Strength,
+    uint NamePlateIconId,
+    byte CharacterDataIcon,
     Vector3 Position,
     float Rotation,
     float SightRadius,
@@ -89,6 +93,7 @@ public sealed class AggroAvoidance(Configuration config)
 
     /// <summary>Enemy object id -> the tick after which it may be routed around again.</summary>
     private readonly Dictionary<ulong, long> _suppressed = [];
+    private readonly HashSet<string> _loggedRankDiagnostics = [];
 
     /// <summary>How long a suppressed enemy stays ignored.</summary>
     private const long SuppressMs = 30_000;
@@ -200,10 +205,24 @@ public sealed class AggroAvoidance(Configuration config)
                     continue;
                 }
 
-                if (npc.Level < _config.DangerousEnemyMinLevel)
+                // Save-the-Queen mobs are all level 80. What matters is the field marker
+                // I/II/III/IV/V/★. I-III are intentionally allowed; IV/V/★ are avoided and an
+                // unresolved marker fails safe as dangerous.
+                var strength = EnemyStrengthResolver.Resolve(npc);
+                if (!strength.Dangerous)
                 {
-                    belowLevel++;
+                    belowLevel++; // retained field name for config-window compatibility: now means safe rank
                     continue;
+                }
+
+                if (_config.EnemyRankDiagnostics)
+                {
+                    var key = $"{strength.NamePlateIconId}:{strength.CharacterDataIcon}:{strength.EnglishName}";
+                    if (_loggedRankDiagnostics.Add(key))
+                        Svc.Log.Information(
+                            $"[BozjaBuddyReborn] Field-rank diagnostic: name=\"{strength.EnglishName}\" " +
+                            $"rank={strength.Label}, region={(byte)strength.Region}, " +
+                            $"NamePlateIconId={strength.NamePlateIconId}, CharacterData.Icon={strength.CharacterDataIcon}.");
                 }
 
                 // Already on us: routing around something that is chasing achieves nothing, it
@@ -244,6 +263,9 @@ public sealed class AggroAvoidance(Configuration config)
                     ObjectId: npc.GameObjectId,
                     Name: npc.Name.TextValue,
                     Level: npc.Level,
+                    Strength: strength.Strength,
+                    NamePlateIconId: strength.NamePlateIconId,
+                    CharacterDataIcon: strength.CharacterDataIcon,
                     Position: npc.Position,
                     Rotation: npc.Rotation,
                     SightRadius: _config.DangerSightRadius,
@@ -355,7 +377,8 @@ public sealed class AggroAvoidance(Configuration config)
         // How far along the route the enemy actually sits.
         var along = Math.Clamp(Vector3.Dot(toEnemy, direction), 0f, length);
 
-        var clearance = blocking.OuterRadius + _config.DangerClearance;
+        var clearance = blocking.OuterRadius + _config.DangerClearance
+                        + (blocking.Strength == FieldEnemyStrength.Star ? _config.DangerStarExtraClearance : 0f);
 
         // THE WAYPOINT MUST BE A SIDESTEP, NOT A CORNER, or the caller will refuse it and the
         // character walks straight through the enemy instead.

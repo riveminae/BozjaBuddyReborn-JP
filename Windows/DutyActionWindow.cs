@@ -66,7 +66,7 @@ public sealed class DutyActionWindow : Window
     private long _sentMs;
 
     public DutyActionWindow(Configuration config, DutyActionSync sync, MultiboxLink link)
-        : base("Duty Actions###BozjaBuddyRebornDutyActions")
+        : base("Duty Action###BozjaBuddyRebornDutyActions")
     {
         _config = config;
         _sync = sync;
@@ -119,13 +119,13 @@ public sealed class DutyActionWindow : Window
         {
             ImGui.TextColored(Yellow, Loc.T("No duty actions right now.", "現在使用できるDuty Actionはありません。"));
             ImGui.TextColored(Grey,
-                "The two Duty Action slots only exist inside a field operation. Your own row fills\n" +
-                "in as soon as you are in Bozja or Zadnor with actions loaded.");
+                "Duty Action 2枠はフィールド内でのみ存在します。南方ボズヤ戦線またはザトゥノル高原で\n" +
+                "アクションをロードすると、自分の行へ反映されます。");
 
             // Name the source that answered and what it saw. An empty bar with actions plainly
             // on screen is a read problem, not a game state, and this is what makes the
             // difference visible rather than guessable.
-            ImGui.TextColored(Grey, $"Read: {_sync.Diagnostic}");
+            ImGui.TextColored(Grey, $"読み取り状態: {_sync.Diagnostic}");
             ImGui.Separator();
         }
 
@@ -133,13 +133,13 @@ public sealed class DutyActionWindow : Window
         {
             ImGui.TextColored(Grey,
                 _link.IsHost
-                    ? "No other box has connected yet - showing your own slots only."
-                    : "Link down - showing your own slots only.");
+                    ? "まだ他クライアントは接続していません。自分の枠だけ表示します。"
+                    : "マルチボックス接続が切れています。自分の枠だけ表示します。");
             ImGui.Separator();
         }
         else if (!_config.MultiboxEnabled)
         {
-            ImGui.TextColored(Grey, "Multibox is off - showing your own slots only.");
+            ImGui.TextColored(Grey, "マルチボックスはOFFです。自分の枠だけ表示します。");
             ImGui.Separator();
         }
 
@@ -178,14 +178,14 @@ public sealed class DutyActionWindow : Window
             : _sentMs > DutyActions.LastPressMs ? _sent : DutyActions.LastPress;
 
         ImGui.Separator();
-        ImGui.TextColored(Grey, message);
+        ImGui.TextColored(Grey, Loc.Runtime(message));
     }
 
     private void DrawRow(PeerDuty peer)
     {
         using var _ = ImRaiiId(peer.Name);
 
-        ImGui.TextColored(peer.IsSelf ? Green : Grey, peer.IsSelf ? (Loc.Ja ? $"{peer.Name}（自分）" : $"{peer.Name} (you)") : peer.Name);
+        ImGui.TextColored(peer.IsSelf ? Green : Grey, peer.IsSelf ? $"{peer.Name}（自分）" : peer.Name);
 
         for (var i = 0; i < DutyActions.SlotCount; i++)
         {
@@ -214,7 +214,7 @@ public sealed class DutyActionWindow : Window
             var dl0 = ImGui.GetWindowDrawList();
             dl0.AddRect(start, start + size, ImGui.GetColorU32(Dim), 4f);
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip($"Duty Action {index + 1}: empty");
+                ImGui.SetTooltip($"Duty Action {index + 1}: 空");
             return;
         }
 
@@ -289,12 +289,12 @@ public sealed class DutyActionWindow : Window
         {
             ImGui.SetTooltip(
                 $"Duty Action {index + 1}: {name}\n" +
-                (slot.MaxCharges > 1 ? $"Charges: {slot.CurCharges}/{slot.MaxCharges}\n" : "") +
+                (slot.MaxCharges > 1 ? $"チャージ: {slot.CurCharges}/{slot.MaxCharges}\n" : "") +
                 (slot.CooldownRemaining > 0f
-                    ? $"Next charge in {slot.CooldownRemaining:F1}s\n"
-                    : "Ready\n") +
+                    ? $"次のチャージまで {slot.CooldownRemaining:F1}秒\n"
+                    : "使用可能\n") +
                 (pressable
-                    ? peer.IsSelf ? "Click to use it." : $"Click to have {peer.Name} use it."
+                    ? peer.IsSelf ? "クリックして使用します。" : $"クリックすると {peer.Name} で使用します。"
                     : refusal));
         }
     }
@@ -312,19 +312,19 @@ public sealed class DutyActionWindow : Window
     private (bool Pressable, string Why) CanPress(PeerDuty peer, DutySlot slot)
     {
         if (!slot.IsSet)
-            return (false, "Nothing loaded in this slot.");
+            return (false, "この枠には何もロードされていません。");
 
         if (!_config.DutyActionClickToUse)
-            return (false, "Click-to-use is off - turn it back on under Settings, Lost Actions.");
+            return (false, "クリック使用がOFFです。設定の「ロストアクション」で有効にしてください。");
 
         if (peer.IsSelf)
             return (true, string.Empty);
 
         if (!_config.MultiboxEnabled)
-            return (false, "Multibox is off - only your own slots can be pressed.");
+            return (false, "マルチボックスがOFFのため、自分の枠だけ操作できます。");
 
         if (!CanCommandPeers)
-            return (false, "This box is a client. Only the host can press another box's slot.");
+            return (false, "このクライアントは子機です。他クライアントの枠を操作できるのはホストだけです。");
 
         return (true, string.Empty);
     }
@@ -348,7 +348,7 @@ public sealed class DutyActionWindow : Window
         }
 
         _link.SendCommand(new BoxCommand(peer.Name, BoxVerb.DutyAction, arg));
-        _sent = $"Told {peer.Name} to use {DutyActions.Describe(slot.ActionId).Name}.";
+        _sent = $"{peer.Name} に {DutyActions.Describe(slot.ActionId).Name} の使用を指示しました。";
         _sentMs = Environment.TickCount64;
     }
 

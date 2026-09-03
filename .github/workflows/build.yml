@@ -60,23 +60,36 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item 'bin/Release/BozjaBuddyReborn/latest.zip' 'dist/BozjaBuddyReborn.zip' -Force
 
-          $manifest = @'
+          $innerManifest = Get-Content 'bin/Release/BozjaBuddyReborn.json' -Raw | ConvertFrom-Json
+          $assemblyVersion = [string]$innerManifest.AssemblyVersion
+          $dalamudApiLevel = [int]$innerManifest.DalamudApiLevel
+          if ([string]::IsNullOrWhiteSpace($assemblyVersion) -or $dalamudApiLevel -le 0) {
+            throw 'Built plugin manifest is missing AssemblyVersion or DalamudApiLevel.'
+          }
+
+          $dllVersion = [System.Reflection.AssemblyName]::GetAssemblyName(
+            (Resolve-Path 'bin/Release/BozjaBuddyReborn.dll')).Version.ToString()
+          if ($dllVersion -ne $assemblyVersion) {
+            throw "Built DLL version $dllVersion does not match inner manifest $assemblyVersion."
+          }
+
+          $manifest = @"
           [
             {
               "Author": "Bozja Buddy Reborn contributors / JP localization by riveminae",
               "Name": "Bozja Buddy Reborn JP",
               "InternalName": "BozjaBuddyReborn",
-              "AssemblyVersion": "1.0.28.1",
-              "TestingAssemblyVersion": "1.0.28.1",
+              "AssemblyVersion": "$assemblyVersion",
+              "TestingAssemblyVersion": "$assemblyVersion",
               "Description": "Bozja Buddy Reborn の日本語クライアント向けfork。南方ボズヤ戦線 / ザトゥノルでCEとスカーミッシュを選択し、vnavmesh・BossMod・Rotation Solver Rebornを連携して移動と戦闘を行います。CEの『参加希望』『戦闘突入』を日本語UIで認識します。移動・戦闘の自動化はFFXIV利用規約上のリスクがあります。自己責任で使用してください。",
               "Punchline": "南方ボズヤ戦線 / ザトゥノルのCE・スカーミッシュ周回を日本語対応",
               "ApplicableVersion": "any",
-              "DalamudApiLevel": 15,
+              "DalamudApiLevel": $dalamudApiLevel,
               "Tags": ["bozja", "zadnor", "field operations", "automation", "japanese"],
               "CategoryTags": ["utility"],
               "RepoUrl": "https://github.com/riveminae/BozjaBuddyReborn-JP",
               "IconUrl": "",
-              "Changelog": "1.0.28.1 - Japanese client support for Critical Engagement registration/commence and Japanese localization for primary UI controls.",
+              "Changelog": "$assemblyVersion - Japanese client support for Critical Engagement registration/commence and Japanese localization for primary UI controls.",
               "IsHide": false,
               "IsTestingExclusive": false,
               "AcceptsFeedback": true,
@@ -85,7 +98,7 @@ jobs:
               "DownloadLinkTesting": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/main/dist/BozjaBuddyReborn.zip"
             }
           ]
-          '@
+          "@
           Set-Content -Path pluginmaster.json -Value $manifest -Encoding utf8
 
       - name: Publish custom repo files

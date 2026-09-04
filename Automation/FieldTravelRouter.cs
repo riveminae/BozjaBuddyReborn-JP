@@ -39,9 +39,9 @@ public readonly record struct FieldTravelDirective(
 ///
 /// The candidate costs deliberately use BOCCHI's yalm-equivalent constants. For the departure
 /// walk, BBR now measures the actual vnavmesh ground path with the same Nav.Pathfind primitive
-/// BOCCHI/Ocelot uses. Inbound-to-goal costs remain horizontal estimates because BBR does not vendor
-/// the entire zone graph. Movement still executes every walk leg, preserving stall recovery and
-/// IV/V/★ avoidance.
+/// BOCCHI/Ocelot uses. The selected inbound-to-goal leg uses the same bounded telemetry cache when
+/// available, and otherwise temporarily falls back to its horizontal estimate. Movement still
+/// executes every walk leg, preserving stall recovery and IV/V/★ avoidance.
 /// </summary>
 public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration config, NavmeshIpc navmesh)
 {
@@ -69,8 +69,10 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
     private Vector3 _planningDeparturePoint;
     private uint _planningTerritory;
     private long _planningStartedMs;
+    private long _planningDeadlineMs;
     private bool _planningCancelSent;
     private bool _planningDiscardResult;
+    private bool _planningInboundProbe;
 
     private const float GoalIdentityRadius = 10f;
     private const float AethernetReadyRadius = 15f;
@@ -127,7 +129,13 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         if (_config.UseAethernetTravel && _lifestream.Available && nodes.Count >= 2
             && resolvedDeparture is { } departure)
         {
-            var walkToDeparture = Movement.HorizontalDistance(start, departure.Position);
+            var departurePoint = ResolveNodePathPoint(departure, start.Y);
+            var walkToDeparture = _pathCosts.Estimate(
+                Svc.ClientState.TerritoryType,
+                start,
+                departurePoint,
+                Movement.HorizontalDistance(start, departure.Position),
+                request: false);
             foreach (var inbound in nodes)
             {
                 if (departure.CustomAetheryteId == inbound.CustomAetheryteId)
@@ -138,10 +146,16 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                 if (inbound.IsBaseCamp && !departure.IsBaseCamp)
                     continue;
 
+                var inboundPoint = ResolveNodePathPoint(inbound, destination.Y);
                 var candidate = new TraversalCandidate(
                     walkToDeparture
                     + hopCost
-                    + Movement.HorizontalDistance(inbound.Position, destination));
+                    + _pathCosts.Estimate(
+                        Svc.ClientState.TerritoryType,
+                        inboundPoint,
+                        destination,
+                        Movement.HorizontalDistance(inbound.Position, destination),
+                        request: false));
                 if (candidate.TotalCost < best.TotalCost)
                     best = candidate;
             }
@@ -154,8 +168,13 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             && !Svc.Condition[ConditionFlag.InCombat]
             && GeneralActions.ReturnReady())
         {
-            var directReturn = new TraversalCandidate(
-                returnCost + Movement.HorizontalDistance(baseCamp.Position, destination));
+            var baseCampPoint = ResolveNodePathPoint(baseCamp, destination.Y);
+            var directReturn = new TraversalCandidate(returnCost + _pathCosts.Estimate(
+                Svc.ClientState.TerritoryType,
+                baseCampPoint,
+                destination,
+                Movement.HorizontalDistance(baseCamp.Position, destination),
+                request: false));
             if (directReturn.TotalCost < best.TotalCost)
                 best = directReturn;
             if (_config.UseAethernetTravel && _lifestream.Available)
@@ -164,8 +183,13 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                 {
                     if (inbound.IsBaseCamp)
                         continue;
-                    var candidate = new TraversalCandidate(returnCost + hopCost
-                        + Movement.HorizontalDistance(inbound.Position, destination));
+                    var inboundPoint = ResolveNodePathPoint(inbound, destination.Y);
+                    var candidate = new TraversalCandidate(returnCost + hopCost + _pathCosts.Estimate(
+                        Svc.ClientState.TerritoryType,
+                        inboundPoint,
+                        destination,
+                        Movement.HorizontalDistance(inbound.Position, destination),
+                        request: false));
                     if (candidate.TotalCost < best.TotalCost)
                         best = candidate;
                 }
@@ -195,8 +219,10 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         _planningDeparturePoint = Vector3.Zero;
         _planningTerritory = 0;
         _planningStartedMs = 0;
+        _planningDeadlineMs = 0;
         _planningCancelSent = false;
         _planningDiscardResult = false;
+        _planningInboundProbe = false;
         RouteDescription = "直接移動";
     }
 
@@ -239,13 +265,14 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
 
             if (_pathCosts.TryGet(territory, _planningStart, _planningDeparturePoint, out var measured))
             {
-                Svc.Log.Debug($"[BozjaBuddyReborn] vnavmesh measured departure walk at {measured:F1}y; finalizing BOCCHI route.");
-                var planStart = _planningStart;
-                Plan(planStart, finalDestination, finalRange, waitForOptionalLifestream, allowPathCostWait: false);
+                var leg = _planningInboundProbe ? "inbound-to-goal" : "departure";
+                Svc.Log.Debug($"[BozjaBuddyReborn] vnavmesh measured {leg} walk at {measured:F1}y; finalizing BOCCHI route.");
+                Plan(me.Position, finalDestination, finalRange, waitForOptionalLifestream,
+                    allowPathCostWait: true, preservePathCostDeadline: true);
                 return Resolve(finalDestination, finalRange, waitForOptionalLifestream);
             }
 
-            if (now - _planningStartedMs < PathCostPlanningWaitMs)
+            if (now < _planningDeadlineMs)
             {
                 RouteDescription = "vnavmeshで実経路コストを計算中";
                 return new FieldTravelDirective(Vector3.Zero, 0, true, _mode, RouteDescription);
@@ -267,9 +294,9 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                 return new FieldTravelDirective(Vector3.Zero, 0, true, _mode, RouteDescription);
             }
 
-            Svc.Log.Debug("[BozjaBuddyReborn] Departure path-cost probe exceeded 750ms; using horizontal fallback for this route.");
-            var fallbackStart = _planningStart;
-            Plan(fallbackStart, finalDestination, finalRange, waitForOptionalLifestream, allowPathCostWait: false);
+            var probe = _planningInboundProbe ? "Inbound-to-goal" : "Departure";
+            Svc.Log.Debug($"[BozjaBuddyReborn] {probe} path-cost probe exceeded 750ms; using horizontal fallback for this route.");
+            Plan(me.Position, finalDestination, finalRange, waitForOptionalLifestream, allowPathCostWait: false);
             return Resolve(finalDestination, finalRange, waitForOptionalLifestream);
         }
 
@@ -480,7 +507,8 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         Vector3 finalDestination,
         float finalRange,
         bool waitForOptionalLifestream = false,
-        bool allowPathCostWait = true)
+        bool allowPathCostWait = true,
+        bool preservePathCostDeadline = false)
     {
         if (_pathCosts.HasPending)
         {
@@ -494,8 +522,10 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             _planningDeparturePoint = Vector3.Zero;
             _planningTerritory = 0;
             _planningStartedMs = Environment.TickCount64;
+            _planningDeadlineMs = 0;
             _planningCancelSent = true;
             _planningDiscardResult = true;
+            _planningInboundProbe = false;
             RouteDescription = "旧実経路コスト計算の終了待ち";
             return;
         }
@@ -512,8 +542,11 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
         _planningDeparturePoint = Vector3.Zero;
         _planningTerritory = 0;
         _planningStartedMs = 0;
+        if (!preservePathCostDeadline)
+            _planningDeadlineMs = 0;
         _planningCancelSent = false;
         _planningDiscardResult = false;
+        _planningInboundProbe = false;
         _returnStartedMs = 0;
         _returnConfirmationSent = false;
         _optionalLifestreamWaitStartedMs = 0;
@@ -558,15 +591,7 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                 _pathCosts.Estimate(territory, start, probePoint, fallback, request: true);
                 if (_pathCosts.IsPending(territory, start, probePoint))
                 {
-                    _mode = FieldTravelMode.Planning;
-                    _departure = probeDeparture;
-                    _planningStart = start;
-                    _planningDeparturePoint = probePoint;
-                    _planningTerritory = territory;
-                    _planningStartedMs = Environment.TickCount64;
-                    _planningCancelSent = false;
-                    _planningDiscardResult = false;
-                    RouteDescription = "vnavmeshで実経路コストを計算中";
+                    BeginPathCostPlanning(territory, start, probePoint, inboundProbe: false, probeDeparture);
                     return;
                 }
             }
@@ -588,7 +613,13 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                 if (inbound.IsBaseCamp && !departure.IsBaseCamp)
                     continue;
 
-                var walkFromInbound = Movement.HorizontalDistance(inbound.Position, finalDestination);
+                var inboundPoint = ResolveNodePathPoint(inbound, finalDestination.Y);
+                var walkFromInbound = _pathCosts.Estimate(
+                    territory,
+                    inboundPoint,
+                    finalDestination,
+                    Movement.HorizontalDistance(inbound.Position, finalDestination),
+                    request: false);
                 var candidate = new TraversalCandidate(walkToDeparture + hopCost + walkFromInbound);
                 if (candidate.TotalCost >= best.TotalCost)
                     continue;
@@ -609,7 +640,13 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             && !Svc.Condition[ConditionFlag.InCombat]
             && GeneralActions.ReturnReady())
         {
-            var baseWalk = Movement.HorizontalDistance(camp.Position, finalDestination);
+            var campPoint = ResolveNodePathPoint(camp, finalDestination.Y);
+            var baseWalk = _pathCosts.Estimate(
+                territory,
+                campPoint,
+                finalDestination,
+                Movement.HorizontalDistance(camp.Position, finalDestination),
+                request: false);
             var returnCandidate = new TraversalCandidate(returnCost + baseWalk);
             if (returnCandidate.TotalCost < best.TotalCost)
             {
@@ -625,8 +662,14 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
                 {
                     if (inbound.IsBaseCamp)
                         continue;
+                    var inboundPoint = ResolveNodePathPoint(inbound, finalDestination.Y);
                     var returnHopCandidate = new TraversalCandidate(returnCost + hopCost
-                        + Movement.HorizontalDistance(inbound.Position, finalDestination));
+                        + _pathCosts.Estimate(
+                            territory,
+                            inboundPoint,
+                            finalDestination,
+                            Movement.HorizontalDistance(inbound.Position, finalDestination),
+                            request: false));
                     if (returnHopCandidate.TotalCost >= best.TotalCost)
                         continue;
                     best = returnHopCandidate;
@@ -700,6 +743,30 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             return;
         }
 
+        if (allowPathCostWait)
+        {
+            var inboundPoint = ResolveNodePathPoint(bestInbound.Value, finalDestination.Y);
+            if (!_pathCosts.TryGet(territory, inboundPoint, finalDestination, out _))
+            {
+                _pathCosts.Estimate(
+                    territory,
+                    inboundPoint,
+                    finalDestination,
+                    Movement.HorizontalDistance(bestInbound.Value.Position, finalDestination),
+                    request: true);
+                if (_pathCosts.IsPending(territory, inboundPoint, finalDestination))
+                {
+                    BeginPathCostPlanning(
+                        territory,
+                        inboundPoint,
+                        finalDestination,
+                        inboundProbe: true,
+                        departure: bestDeparture.Value);
+                    return;
+                }
+            }
+        }
+
         _departure = bestDeparture;
         _inbound = bestInbound;
         _mode = bestMode;
@@ -721,6 +788,30 @@ public sealed class FieldTravelRouter(LifestreamIpc lifestream, Configuration co
             || resolved.Y > 900f)
             return new Vector3(node.Position.X, fallbackY, node.Position.Z);
         return resolved;
+    }
+
+    private void BeginPathCostPlanning(
+        uint territory,
+        Vector3 from,
+        Vector3 to,
+        bool inboundProbe,
+        FieldAethernet.Node departure)
+    {
+        _mode = FieldTravelMode.Planning;
+        _departure = departure;
+        _planningStart = from;
+        _planningDeparturePoint = to;
+        _planningTerritory = territory;
+        _planningStartedMs = Environment.TickCount64;
+        _planningDeadlineMs = _planningDeadlineMs == 0
+            ? _planningStartedMs + PathCostPlanningWaitMs
+            : _planningDeadlineMs;
+        _planningCancelSent = false;
+        _planningDiscardResult = false;
+        _planningInboundProbe = inboundProbe;
+        RouteDescription = inboundProbe
+            ? "vnavmeshで到着後の実経路コストを計算中"
+            : "vnavmeshで実経路コストを計算中";
     }
 
     private static FieldAethernet.Node? ResolveDepartureNode(

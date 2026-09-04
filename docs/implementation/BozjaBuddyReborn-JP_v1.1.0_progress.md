@@ -53,7 +53,7 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 | P0-01 | DONE | baseline audit + build確認 | Debug/Release/package/publish成功 |
 | P1-01 | DONE | AGPL/notice検証 | root AGPL、BBR/BOCCHI/KanoNoUta fork/Ocelot/ECommons provenanceを明記 |
 | P1-02 | DONE | Test version 1.0.90.x統一 | workflow run numberによる自動version、manifest/assembly/package同期 |
-| P2-01 | DONE | Vendored BOCCHI traversal model | BOCCHI constants/TraversalCandidate/Return/single-departure規則をvendor化。出発walkはvnavmesh実経路長を計測。inbound→goalはfull zone graph未vendorのため水平距離近似 |
+| P2-01 | DONE | Vendored BOCCHI traversal model | BOCCHI constants/TraversalCandidate/Return/single-departure規則をvendor化。出発walkと選択inbound→goal walkはbounded vnavmesh実経路長cacheを利用し、未測定時のみ水平距離へfail-openする |
 | P2-02 | DONE | ReturnTeleportWalk | `FieldTravelRouter.Returning`、Return確認、base→Aethernet→walk実装済み |
 | P2-03 | DONE | route retry / blacklist | 3回stall後spawn blacklist、FATE消滅時prune、Start時clear |
 | P2-04 | DONE | manual movement yield | WASD/矢印/左右マウス同時押し + 3秒quiet window |
@@ -145,7 +145,7 @@ Current user commits after that validation are intentionally pushed frequently; 
 - BBRでは実移動とは別のbounded telemetryとして利用し、framework tickを同期blockしない。
 - 同時queryは最大1、待機は最大750ms。timeout/Stop/対象変更ではcancel→Task終了確認→replanの順にする。
 - Cache keyはterritoryを含み、別エリア同座標の測定値を再利用しない。
-- full BOCCHI graph serviceはvendorしていないため、現時点ではdeparture walkのみ実経路長、inbound→goalは水平距離近似。
+- full BOCCHI graph serviceはvendorしていない。候補比較はdeparture walkと選択inbound→goal walkのfreshな実経路長cacheを利用し、未測定/timeout時のみ水平距離へfail-openする。
 
 ### Enemy rank
 
@@ -157,9 +157,8 @@ Current user commits after that validation are intentionally pushed frequently; 
 
 1. P5-01 Cache transferの公開根拠探索を継続
 2. Cache側在庫不足のread-only診断・同一instanceでの再補給loop防止をtransfer executorと独立して追加
-3. P2-01 inbound→goalの実経路コスト化が過度なPathfind負荷なしで可能か設計・検証
-4. RC前static acceptance checklistを拡張
-5. 実機依存項目は最後にまとめて確認
+3. RC前static acceptance checklistを拡張
+4. 実機依存項目は最後にまとめて確認
 
 ## 実機検証方針
 

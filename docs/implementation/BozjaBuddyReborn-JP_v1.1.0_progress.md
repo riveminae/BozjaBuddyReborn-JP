@@ -122,6 +122,13 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 - artifact upload: pass
 - test repository publish: pass
 
+### RC前static acceptance拡張（2026-09-04）
+
+- 死亡復旧の固定契約（スカーミッシュ30秒 / 移動10秒のRaise待機、死亡context別timer配線、live CE中のReturn禁止、TextAdvance元状態復元）を `tools/validate_v110_contract.py` へ追加した。
+- 既存validatorが受理する現実的な独立mutant 5件に対し、拡張後validatorが全件を拒否することをmutation gateで確認した。
+- manager検証でpacket replay、static contract、日本語UI audit、Debug / Release buildが成功し、再reviewに未解決findingはない。
+- これは静的/ビルド検証の証跡であり、P8-03の実機死亡復旧試験は引き続き `WAITING_LIVE_TEST` とする。
+
 Current user commits after that validation are intentionally pushed frequently; the newest workflow run is the authority for whether they have been incorporated into the next validated bot commit.
 
 ## 技術調査

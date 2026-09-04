@@ -312,6 +312,43 @@ require(
     "required-dependency timeout enters safe stop",
 )
 
+# Death recovery has fixed safety semantics rather than configurable heuristics: a CE corpse must
+# never be released while the CE is live, ordinary skirmishes receive a 30-second raise window,
+# travel/idle receives 10 seconds, and any TextAdvance state changed for unattended recovery must
+# be restored. These checks intentionally live on the dedicated driver, not the controller, so the
+# orchestrator cannot become the owner of the timing or optional-dependency policy.
+require(
+    "Automation/DeathRecoveryDriver.cs",
+    "private const long SkirmishRaiseWaitMs = 30_000;",
+    "skirmish deaths retain the fixed 30-second raise window",
+)
+require(
+    "Automation/DeathRecoveryDriver.cs",
+    "private const long TravelRaiseWaitMs = 10_000;",
+    "travel and idle deaths retain the fixed 10-second raise window",
+)
+require(
+    "Automation/DeathRecoveryDriver.cs",
+    "var waitMs = diedDuringSkirmish ? SkirmishRaiseWaitMs : TravelRaiseWaitMs;",
+    "death context selects the matching fixed raise window",
+)
+require(
+    "Automation/DeathRecoveryDriver.cs",
+    "if (criticalEngagementLive)",
+    "live CE deaths enter the no-release branch",
+)
+require_order(
+    "Automation/DeathRecoveryDriver.cs",
+    "if (criticalEngagementLive)",
+    "GeneralActions.CastReturn()",
+    "the live-CE no-release decision precedes every Return cast",
+)
+require(
+    "Automation/DeathRecoveryDriver.cs",
+    "_textAdvance.RestoreOriginalState();",
+    "death recovery restores the user's prior TextAdvance state",
+)
+
 # Dangerous-enemy routing is strength-based, with unknowns failing safe.
 require("Automation/AggroAvoidance.cs", "strength.Dangerous", "field-rank danger classification is used")
 require("Game/EnemyStrengthResolver.cs", "FieldEnemyStrength.Unknown", "unknown field rank remains representable")

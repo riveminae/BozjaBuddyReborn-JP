@@ -52,6 +52,23 @@ addon名として以下は公開ソースから確認できる。
 
 目的は引数を推測することではなく、ゲーム自身が手動操作時に送った実値を記録すること。
 
+### 再現可能な手動採取手順
+
+これは Test build だけで行う観測であり、プラグインに転送を実行させない。
+
+1. ボズヤまたはザトゥノル内で、Cache と Holster を開く。対象のLost Actionを1種類だけ選び、操作前に Cache/ Holster の両方の個数を記録する。
+2. Advanced の `LogMycItemBoxCallbacks` をONにする。通常ログに他の操作を混ぜない。
+3. **Cache → Holster**: 選んだ同一rowを、ゲームのUIを手で使ってちょうど1個移す。probeの同じ `id` の event 行と correlation 行を保存する。
+4. Holster の個数が1増え、Cache の個数が1減ったことをゲームUIでも確認する。
+5. **Holster → Cache**: 同じrowを、ゲームのUIを手で使ってちょうど1個戻す。同様に event/correlation 行と画面上の前後個数を保存する。
+6. `LogMycItemBoxCallbacks` をOFFにする。採取物にはキャラクター名等を含めず、必要な行だけを開発者へ渡す。
+
+各方向で確定に必要な証拠は、(a) event行の addon/type/eventParam/atkParam/data、(b) 同じ `id` の **before/after** Cache/Holster row-count、(c) `snapshotStable=true` かつ `ambiguous=false` の安定した読取、(d) 手操作の数量とUI上の一致、である。さらに、方向（Cache→Holster または Holster→Cache）、対象row、数量、そして **slot値そのもの、またはこの操作にslotが存在しないことの明示的な証拠** を、別の手操作・UI観測で**独立に検証**しなければならない。複数rowが同時に変化した採取、複数eventを同一操作へ対応付けられない採取、`ambiguous=true` の採取、または方向/row/数量/slotが曖昧な採取は根拠として採用しない。
+
+`snapshotStable` は連続するframework tickで読取値が安定したことだけを表す。before/after snapshotとdeltaは相関用であり、操作がその変化を引き起こした因果証明ではない。したがって `deltaMatchesExpected=unknown` と `acknowledgement=unconfirmed` は、callbackの戻り値でもサーバー承認でもない。これらが残る限り、row/count/slot引数または正規の承認経路は未確定である。
+
+手動操作で得た署名は**再生を許可しない**。両方向の row/count/slot 引数と、正規のserver acknowledgementを独立した根拠で確定し、レビューした専用executorを別packetで追加するまで、callbackの呼出し・引数推測・server-backed countの書換えは禁止する。
+
 このprobeが取得すべき最小ケース:
 
 1. CacheからHolsterへ1個だけ移動
@@ -82,7 +99,7 @@ IsTransferSettled(before, expectedDelta)
 
 成功判定はUI callbackの戻り値だけに依存しない。
 
-転送前snapshotと転送後 `AgentMycItemBox.ItemBoxData` を比較して、対象rowのCache/Holster countが期待deltaになったことを確認してから次操作へ進む。
+将来のexecutorでは、転送前snapshotと転送後 `AgentMycItemBox.ItemBoxData` を比較して、対象rowのCache/Holster countが期待deltaになったことを確認する。この期待deltaは必要条件だが、server acknowledgementでも因果証明でもなく、それだけで次操作へ進んではならない。独立に検証済みの正規server acknowledgementも確立・観測してから次操作へ進む。
 
 タイムアウト/不一致時はtransaction failureとして扱う。
 

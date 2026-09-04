@@ -64,7 +64,7 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 | P4-02 | DONE | ActivityPlanner | route-cost、80% cutoff、大規模戦闘最優先、Relic filter実装済み |
 | P4-03 | DONE | RelicFarmPlanner continuation | current-territory auto-continue実装・build済み |
 | P4-04 | DONE | farm target staging | farm対象不在時のAethernet staging実装済み |
-| P5-01 | RESEARCH | Cache/Holster transfer特定 | `docs/research/lost-finds-cache-transfer.md`。公開手段未発見 |
+| P5-01 | RESEARCH | Cache/Holster transfer特定 | `docs/research/lost-finds-cache-transfer.md`。公開手段未発見。Test-only read-only probeは手動1個転送の前後snapshotを後続framework tickで相関し、重複eventを曖昧として除外する。実機captureと独立したserver acknowledgement確認待ち |
 | P5-02 | DONE | HolsterInventory abstraction | `LostItemBoxInventory`, snapshot, `SurvivalLoadoutPlanner` 実装済み |
 | P5-03 | BLOCKED | Initialize正常系 | target planningまでは完成。transfer effectのみP5-01待ち |
 | P5-04 | BLOCKED | Initialize rollback | snapshot/transaction設計済み。実transfer確定待ち |
@@ -137,7 +137,7 @@ Current user commits after that validation are intentionally pushed frequently; 
 - `AgentMycItemBag` / `MYCItemBox` / `MYCItemBag` / `MYCItemBagTrade` の存在は確認済みだが、正規transfer callback/functionの引数契約は未確定。
 - `kaleidocli/BozjaBuddy` のMYCItemBox/MYCItemBagTrade実装も再確認したが、フィルタ/overlay/在庫read中心で、自動転送callbackの根拠は得られなかった。
 - server-backed countへの直接writeは禁止。
-- `MycItemBoxCallbackProbe` は実ゲーム自身のcallbackを採取するための診断手段として残す。
+- `MycItemBoxCallbackProbe` は実ゲーム自身のcallbackを採取するための診断手段として残す。config ON時だけ前後snapshotをread-onlyで採取し、重複eventは根拠から除外する。snapshot安定/差分は因果またはserver acknowledgementを示さない。
 
 ### BOCCHI / vnavmesh path cost
 

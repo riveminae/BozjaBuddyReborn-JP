@@ -1347,7 +1347,12 @@ public sealed class BozjaController
                 fromHost.Territory != Svc.ClientState.TerritoryType)
                 return SharedObjective.None;
 
-            return fromHost;
+            // Shared objectives do not override this character's active Relic restriction.
+            // Policy remains in TargetSelector; the controller only validates the interface.
+            return fromHost.IsSet
+                   && _selector.StillPermitted(fromHost.Kind, fromHost.Id, fromHost.Position)
+                ? fromHost
+                : SharedObjective.None;
         }
 
         // STICKINESS. The selector re-ranks from scratch every tick, so without this a newly

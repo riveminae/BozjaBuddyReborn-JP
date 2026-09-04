@@ -131,6 +131,9 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 - ソーシャル要求拒否について、Running中限定、同一dialog再検証、PartyInvite agent識別、subject/request二重判定、単一の拒否sink、Dalamud通知禁止をstatic contractへ追加し、成功時の拒否をWarning履歴へ記録する欠落も修正した。
 - 変更前validatorが受理した独立mutant 9件を変更後validatorが全件拒否することを隔離mutation gateで確認した。manager検証ではpacket replay、static contract、日本語UI audit、Debug / Release buildが成功し、reviewerの未解決static findingはない。
 - これは静的/ビルド検証の証跡であり、P10-03の誤拒否を含む実機確認は引き続き `WAITING_LIVE_TEST` とする。
+- Activity / Relic selectorについて、大規模戦闘の絶対優先、最初のFarm対象を自動生成しないこと、選択素材完了後だけの自動継続、active Relic filterを通常・sticky・multibox追従の全経路で再検査すること、対象不在時に汎用待機地点より先にAethernet待機を試すことをstatic contractへ追加した。判定不能regionをRelic farming中はfail-closedにし、multibox受信目的地も既存selector policyへ通すよう修正した。
+- 変更前validatorが受理した現実的な独立mutant 8件を変更後validatorが全件拒否することを隔離mutation gateで確認した。manager検証ではstatic contract、日本語UI audit、Debug / Release build、diff checkがすべてexit 0。初回reviewで指摘された`SelectFate`直接filter経路とAethernet検証表現を修復し、再reviewは未解決findingなしで合格した。
+- これは静的/ビルド検証の証跡のみであり、CE・Relic・multibox・待機移動の実機項目を `DONE` へ昇格するものではない。既存の `WAITING_LIVE_TEST` は維持する。
 
 Current user commits after that validation are intentionally pushed frequently; the newest workflow run is the authority for whether they have been incorporated into the next validated bot commit.
 

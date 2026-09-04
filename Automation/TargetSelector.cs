@@ -125,6 +125,11 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         if (kind == ObjectiveKind.Fate && _routeBlacklistedFates.Contains(id))
             return false;
 
+        // A host-selected large-scale CE retains its absolute priority when a multibox client
+        // revalidates the shared objective. The client still has to opt in locally.
+        if (kind == ObjectiveKind.CriticalEngagement && _catalog.IsLargeScale((ushort)id))
+            return _config.EngageLargeScale;
+
         var territory = Svc.ClientState.TerritoryType;
         if (RestrictedTerritory != 0 && RestrictedTerritory != territory)
             return false;
@@ -235,11 +240,12 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         var territory = Svc.ClientState.TerritoryType;
         var region = _regions.Resolve(territory, kind, id, position);
 
-        // Neither learned nor confidently placeable. Visiting it is still how it gets learned,
-        // so the default is to allow it; SkipUnknownRegions is for users who would rather waste
-        // no clears at all.
+        // Neither learned nor confidently placeable. An explicit Relic target is fail-closed:
+        // allowing an unknown region would let an unrelated skirmish run even though the farm
+        // contract permits only activities known to drop the selected material. Without a Relic
+        // target, keep the ordinary/manual-region discovery policy controlled by SkipUnknownRegions.
         if (region == FieldRegionId.Unknown)
-            return !_config.SkipUnknownRegions;
+            return FarmTarget == null && !_config.SkipUnknownRegions;
 
         return region == requiredRegion;
     }

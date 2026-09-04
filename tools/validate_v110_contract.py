@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +44,172 @@ def require_count(path: str, needle: str, expected: int, why: str) -> None:
             f"expected {expected} occurrence(s), found {actual}: {needle!r}"
         )
     print(f"ok: {path}: {why}")
+
+
+def method_body(path: str, signature: str) -> str:
+    """Return one C# method body using balanced braces, ignoring braces inside strings/comments."""
+    text = read(path)
+    start = text.find(signature)
+    if start < 0:
+        raise SystemExit(f"CONTRACT FAIL [{path}]: method signature not found: {signature!r}")
+    brace = text.find("{", start + len(signature))
+    if brace < 0:
+        raise SystemExit(f"CONTRACT FAIL [{path}]: method body not found: {signature!r}")
+
+    depth = 0
+    i = brace
+    state = "code"
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if state == "line":
+            if ch == "\n":
+                state = "code"
+        elif state == "block":
+            if ch == "*" and nxt == "/":
+                state = "code"
+                i += 1
+        elif state == "string":
+            if ch == "\\":
+                i += 1
+            elif ch == '"':
+                state = "code"
+        elif state == "char":
+            if ch == "\\":
+                i += 1
+            elif ch == "'":
+                state = "code"
+        elif ch == "/" and nxt == "/":
+            state = "line"
+            i += 1
+        elif ch == "/" and nxt == "*":
+            state = "block"
+            i += 1
+        elif ch == '"':
+            state = "string"
+        elif ch == "'":
+            state = "char"
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[brace + 1 : i]
+        i += 1
+
+    raise SystemExit(f"CONTRACT FAIL [{path}]: unbalanced method body: {signature!r}")
+
+
+def compact_code(text: str) -> str:
+    """Collapse layout so contract checks describe control flow rather than line/token placement."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def require_activity_relic_behavior() -> None:
+    """Evaluate selector/planner control-flow facts against the frozen v1.1 scenarios."""
+    registration = compact_code(method_body(
+        "Automation/TargetSelector.cs",
+        "public CeSnapshot? SelectRegistration(IReadOnlyList<CeSnapshot> engagements, bool deterministic)",
+    ))
+    eligibility = compact_code(method_body(
+        "Automation/TargetSelector.cs", "private bool IsEligible(CeSnapshot ce)"
+    ))
+    filter_body = compact_code(method_body(
+        "Automation/TargetSelector.cs",
+        "private bool PassesFarmFilter(ObjectiveKind kind, uint id, Vector3 position, DropActivity activity)",
+    ))
+    permission = compact_code(method_body(
+        "Automation/TargetSelector.cs",
+        "public bool StillPermitted(ObjectiveKind kind, uint id, Vector3 position)",
+    ))
+    select_body = compact_code(method_body(
+        "Automation/TargetSelector.cs",
+        "public Choice Select(IReadOnlyList<CeSnapshot> engagements, bool deterministic)",
+    ))
+    select_fate = compact_code(method_body(
+        "Automation/TargetSelector.cs", "private Choice SelectFate(bool deterministic)"
+    ))
+    relic_tick = compact_code(method_body(
+        "Relic/RelicFarmCoordinator.cs", "public RelicFarmUpdate Tick(uint territory)"
+    ))
+    resolve = compact_code(method_body(
+        "Automation/BozjaController.cs", "private SharedObjective ResolveObjective()"
+    ))
+    idle = compact_code(method_body(
+        "Automation/BozjaController.cs", "private void RunIdle(string reason)"
+    ))
+
+    facts = {
+        "large_enabled_gate": "if (largeScale && !_config.EngageLargeScale) return false;" in eligibility,
+        "large_bypasses_relic": "if (!largeScale && !PassesFarmFilter(" in eligibility,
+        "large_absolute_rank": "var rank = largeScale ? int.MinValue : PriorityRank(ce.EventId);" in registration,
+        "zero_target_noop": "if (currentId == 0) return RelicFarmUpdate.None;" in relic_tick,
+        "incomplete_target_noop": (
+            "if (RelicTracker.ItemCount(currentId) < material.Required) return RelicFarmUpdate.None;"
+            in relic_tick
+        ),
+        "continuation_after_guard": (
+            relic_tick.find("RelicTracker.ItemCount(currentId) < material.Required")
+            < relic_tick.find("_config.FarmMaterialItemId = next;")
+        ),
+        "ce_only_blocks_fates": (
+            "var wantFate = _config.DoFates && requiredActivity != DropActivity.CriticalEngagement;"
+            in select_body
+        ),
+        "fates_apply_relic_filter": (
+            "if (!PassesFarmFilter(ObjectiveKind.Fate, fate.FateId, fate.Position, DropActivity.Skirmish))"
+            in select_fate
+            and "continue;" in select_fate[
+                select_fate.find("if (!PassesFarmFilter(ObjectiveKind.Fate") :
+                select_fate.find("if (!PassesFarmFilter(ObjectiveKind.Fate") + 180
+            ]
+        ),
+        "unknown_relic_fails_closed": (
+            "if (region == FieldRegionId.Unknown) return FarmTarget == null && !_config.SkipUnknownRegions;"
+            in filter_body
+        ),
+        "shared_objective_rechecks_filter": (
+            "return fromHost.IsSet && _selector.StillPermitted(" in resolve
+        ),
+        "large_shared_objective_bypasses_relic": (
+            "if (kind == ObjectiveKind.CriticalEngagement && _catalog.IsLargeScale((ushort)id))"
+            in permission
+            and "return _config.EngageLargeScale;" in permission
+        ),
+        "idle_prefers_aethernet": (
+            "if (TryGetAethernetIdleSpot(territory, region" in idle
+            and idle.find("TryGetAethernetIdleSpot(territory, region")
+            < idle.find("TryGetIdleSpot(territory, region")
+        ),
+    }
+
+    scenarios = {
+        "enabled Castrum/Dalriada outranks Relic and configured CE priority": (
+            facts["large_enabled_gate"]
+            and facts["large_bypasses_relic"]
+            and facts["large_absolute_rank"]
+        ),
+        "no first Relic target is invented without explicit selection": facts["zero_target_noop"],
+        "automatic continuation occurs only after the selected material completes": (
+            facts["incomplete_target_noop"] and facts["continuation_after_guard"]
+        ),
+        "an unmatched active Relic target cannot run an unrelated skirmish": (
+            facts["ce_only_blocks_fates"]
+            and facts["fates_apply_relic_filter"]
+            and facts["unknown_relic_fails_closed"]
+            and facts["shared_objective_rechecks_filter"]
+            and facts["large_shared_objective_bypasses_relic"]
+        ),
+        "no matching objective attempts aethernet staging before generic idle fallback": (
+            facts["idle_prefers_aethernet"]
+        ),
+    }
+
+    failed = [name for name, passed in scenarios.items() if not passed]
+    if failed:
+        raise SystemExit("ACTIVITY/RELIC CONTRACT FAIL: " + "; ".join(failed))
+    for name in scenarios:
+        print(f"ok: activity/relic behavior: {name}")
 
 
 # JP fork visible-language invariant.
@@ -432,6 +599,11 @@ require(
     "KanoNoUta/BOCCHI",
     "maintenance-fork provenance is retained",
 )
+
+# Activity/Relic selection is an ordered behavior, not the presence of isolated marker strings.
+# Extract complete method bodies, derive the relevant control-flow facts, and evaluate the frozen
+# positive/negative scenarios as a group so bypasses and reordered guards fail the same gate.
+require_activity_relic_behavior()
 
 # Test repo update semantics. A fresh test version on every non-bot run prevents silent ZIP
 # replacement under the same AssemblyVersion.

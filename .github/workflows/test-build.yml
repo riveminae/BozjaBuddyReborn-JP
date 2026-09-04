@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-test:
@@ -23,6 +23,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: feat/bocchi-navigation
+          persist-credentials: false
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@v5
@@ -112,13 +113,16 @@ jobs:
           dotnet build BozjaBuddyReborn.csproj -c Release --no-restore --nologo `
             /p:Version=$version /p:AssemblyVersion=$version /p:FileVersion=$version
 
-      - name: Prepare test custom repository
+      - name: Prepare immutable test release candidate
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $version = '${{ steps.version.outputs.value }}'
+          $tag = "test-$version"
+          $packageName = "BozjaBuddyReborn-$version.zip"
+          $downloadUrl = "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/$tag/dist-test/$packageName"
           New-Item -ItemType Directory -Force -Path dist-test | Out-Null
-          Copy-Item 'bin/Release/BozjaBuddyReborn/latest.zip' 'dist-test/BozjaBuddyReborn.zip' -Force
+          Copy-Item 'bin/Release/BozjaBuddyReborn/latest.zip' "dist-test/$packageName" -Force
 
           $entry = [ordered]@{
             Author = 'Bozja Buddy Reborn contributors / JP fork by riveminae'
@@ -134,13 +138,13 @@ jobs:
             CategoryTags = @('utility')
             RepoUrl = 'https://github.com/riveminae/BozjaBuddyReborn-JP'
             IconUrl = ''
-            Changelog = "$version - feat/bocchi-navigation automated test build. See docs/implementation/BozjaBuddyReborn-JP_v1.1.0_progress.md."
+            Changelog = "$version - immutable test release candidate for feat/bocchi-navigation. See docs/implementation/BozjaBuddyReborn-JP_v1.1.0_progress.md."
             IsHide = $false
             IsTestingExclusive = $false
             AcceptsFeedback = $true
-            DownloadLinkInstall = 'https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip'
-            DownloadLinkUpdate = 'https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip'
-            DownloadLinkTesting = 'https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip'
+            DownloadLinkInstall = $downloadUrl
+            DownloadLinkUpdate = $downloadUrl
+            DownloadLinkTesting = $downloadUrl
           }
           @($entry) | ConvertTo-Json -Depth 6 | Set-Content -Path pluginmaster-test.json -Encoding utf8
 
@@ -159,6 +163,15 @@ jobs:
           if ($manifest[0].AssemblyVersion -ne $expected) {
             throw 'Manifest version does not match source-of-truth version.'
           }
+          if ($manifest[0].TestingAssemblyVersion -ne $expected) {
+            throw 'Testing manifest version does not match source-of-truth version.'
+          }
+          $expectedUrl = "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/test-$expected/dist-test/BozjaBuddyReborn-$expected.zip"
+          foreach ($property in 'DownloadLinkInstall', 'DownloadLinkUpdate', 'DownloadLinkTesting') {
+            if ($manifest[0].$property -ne $expectedUrl) {
+              throw "$property is not pinned to the immutable test tag."
+            }
+          }
 
       - name: Upload test artifact
         uses: actions/upload-artifact@v4
@@ -166,27 +179,6 @@ jobs:
           name: BozjaBuddyReborn-JP-v1.1-test-${{ steps.version.outputs.value }}
           path: |
             bin/Release/**
+            dist-test/BozjaBuddyReborn-${{ steps.version.outputs.value }}.zip
             pluginmaster-test.json
           if-no-files-found: error
-
-      - name: Commit validated packet changes and publish test repository
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          git fetch origin feat/bocchi-navigation
-          $remoteHead = (git rev-parse origin/feat/bocchi-navigation).Trim()
-          $builtHead = '${{ github.sha }}'
-          if ($remoteHead -ne $builtHead) {
-            Write-Host "Branch advanced from $builtHead to $remoteHead while this run was building; skipping stale publish."
-            exit 0
-          }
-
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          if (-not (git diff --cached --quiet)) {
-            git commit -m "build: validate v1.1 packet changes (${{ steps.version.outputs.value }})"
-            git push origin HEAD:feat/bocchi-navigation
-          } else {
-            Write-Host 'No validated source or published files changed.'
-          }

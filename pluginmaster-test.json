@@ -20,11 +20,11 @@
   ],
   "RepoUrl": "https://github.com/riveminae/BozjaBuddyReborn-JP",
   "IconUrl": "",
-  "Changelog": "1.0.90.162 - feat/bocchi-navigation automated test build. See docs/implementation/BozjaBuddyReborn-JP_v1.1.0_progress.md.",
+  "Changelog": "1.0.90.162 - immutable test release. See docs/implementation/BozjaBuddyReborn-JP_v1.1.0_progress.md.",
   "IsHide": false,
   "IsTestingExclusive": false,
   "AcceptsFeedback": true,
-  "DownloadLinkInstall": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip",
-  "DownloadLinkUpdate": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip",
-  "DownloadLinkTesting": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/feat/bocchi-navigation/dist-test/BozjaBuddyReborn.zip"
+  "DownloadLinkInstall": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/test-1.0.90.162/dist-test/BozjaBuddyReborn-1.0.90.162.zip",
+  "DownloadLinkUpdate": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/test-1.0.90.162/dist-test/BozjaBuddyReborn-1.0.90.162.zip",
+  "DownloadLinkTesting": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/test-1.0.90.162/dist-test/BozjaBuddyReborn-1.0.90.162.zip"
 }

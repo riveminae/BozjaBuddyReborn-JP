@@ -34,6 +34,17 @@ def require_order(path: str, first: str, second: str, why: str) -> None:
     print(f"ok: {path}: {why}")
 
 
+def require_count(path: str, needle: str, expected: int, why: str) -> None:
+    text = read(path)
+    actual = text.count(needle)
+    if actual != expected:
+        raise SystemExit(
+            f"CONTRACT FAIL [{path}]: {why}\n"
+            f"expected {expected} occurrence(s), found {actual}: {needle!r}"
+        )
+    print(f"ok: {path}: {why}")
+
+
 # JP fork visible-language invariant.
 require("Localization.cs", "public static bool Ja => true;", "visible UI is Japanese-fixed")
 
@@ -310,6 +321,59 @@ require(
     "Automation/BozjaController.cs",
     "_safeStop.Tick(Svc.Condition[ConditionFlag.InCombat])",
     "required-dependency timeout enters safe stop",
+)
+
+# Social request rejection is intentionally narrower than ordinary SelectYesno handling. The
+# guard is enabled only by the live Running predicate, binds a queued decision to the same addon
+# instance, and accepts either the PartyInvite agent identity or a prompt containing both a social
+# subject and incoming-request wording. Rejections are history-only; they do not raise a Dalamud
+# notification. These are static boundaries around a live-tested feature, not proof of prompt text.
+require(
+    "Plugin.cs",
+    "new SocialRequestGuard(_config, () => _controller.Running)",
+    "social rejection is wired to the controller Running state",
+)
+require_count(
+    "Automation/SocialRequestGuard.cs",
+    "!_config.RejectSocialRequestsWhileRunning || !_running()",
+    2,
+    "Running and user permission are checked both when classifying and immediately before rejection",
+)
+require(
+    "Automation/SocialRequestGuard.cs",
+    "agent->ConfirmAddonId == addon->Id",
+    "party invitations require the PartyInvite agent to own the same dialog",
+)
+require(
+    "Automation/SocialRequestGuard.cs",
+    "addon->Id != _pendingAddonId",
+    "queued social rejection cannot transfer to a replacement Yes/No dialog",
+)
+require(
+    "Automation/SocialRequestGuard.cs",
+    "if (subject == null)",
+    "generic prompts without a social subject remain untouched",
+)
+require(
+    "Automation/SocialRequestGuard.cs",
+    "if (!incoming)",
+    "social wording alone is insufficient without incoming-request wording",
+)
+require_count(
+    "Automation/SocialRequestGuard.cs",
+    "master.No();",
+    1,
+    "identified social requests have one guarded rejection sink",
+)
+require(
+    "Automation/SocialRequestGuard.cs",
+    "DiagnosticsRecorder.Warning($\"{kind}を自動拒否しました。\");",
+    "successful rejection is recorded in warning history",
+)
+forbid(
+    "Automation/SocialRequestGuard.cs",
+    "Svc.NotificationManager",
+    "social-request rejection does not raise a Dalamud notification",
 )
 
 # Death recovery has fixed safety semantics rather than configurable heuristics: a CE corpse must

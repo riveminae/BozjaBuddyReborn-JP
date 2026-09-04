@@ -128,6 +128,9 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 - 既存validatorが受理する現実的な独立mutant 5件に対し、拡張後validatorが全件を拒否することをmutation gateで確認した。
 - manager検証でpacket replay、static contract、日本語UI audit、Debug / Release buildが成功し、再reviewに未解決findingはない。
 - これは静的/ビルド検証の証跡であり、P8-03の実機死亡復旧試験は引き続き `WAITING_LIVE_TEST` とする。
+- ソーシャル要求拒否について、Running中限定、同一dialog再検証、PartyInvite agent識別、subject/request二重判定、単一の拒否sink、Dalamud通知禁止をstatic contractへ追加し、成功時の拒否をWarning履歴へ記録する欠落も修正した。
+- 変更前validatorが受理した独立mutant 9件を変更後validatorが全件拒否することを隔離mutation gateで確認した。manager検証ではpacket replay、static contract、日本語UI audit、Debug / Release buildが成功し、reviewerの未解決static findingはない。
+- これは静的/ビルド検証の証跡であり、P10-03の誤拒否を含む実機確認は引き続き `WAITING_LIVE_TEST` とする。
 
 Current user commits after that validation are intentionally pushed frequently; the newest workflow run is the authority for whether they have been incorporated into the next validated bot commit.
 

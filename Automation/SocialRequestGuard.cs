@@ -138,6 +138,7 @@ public sealed unsafe class SocialRequestGuard : IDisposable
             };
             master.No();
             LastDeclined = kind;
+            DiagnosticsRecorder.Warning($"{kind}を自動拒否しました。");
             Svc.Log.Information($"[BozjaBuddyReborn] Declined incoming social request: {kind}.");
         }
         catch (Exception ex)

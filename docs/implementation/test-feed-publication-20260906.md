@@ -52,3 +52,20 @@ passed the same `System.Text.Json` root/count check with exit 0.
 Publish the tag and feature-branch feed atomically, then validate the public raw
 feed and archive hash. A successful public download does not replace the human
 Dalamud update/reload/clipboard tests in the Japanese trial sheet.
+
+## Published and verified
+
+- Release commit: `38e7f831bbc9cdfca89305957b0c6c914591c9a0`.
+  New annotated tag `test-1.0.90.169` and the feature feed were pushed atomically.
+  No existing tag, stable feed or main ref was changed.
+- Authenticated publishing was followed by an unauthenticated `Invoke-WebRequest`
+  to the exact raw feature-feed URL (no cache-busting query): HTTP 200. Raw JSON
+  root/count, both version fields, InternalName and all three pinned URLs passed.
+- The pinned public ZIP was downloaded to a new temporary file. Length 563397
+  bytes; SHA-256 exactly matches the CI artifact hash above. Both publication
+  verification commands exited 0.
+- [Release-commit CI run 34021457587](https://github.com/riveminae/BozjaBuddyReborn-JP/actions/runs/34021457587)
+  also completed successfully. Its newly numbered candidate is not auto-published;
+  the public feed remains the deliberately published `1.0.90.169`.
+- Actual Dalamud installation/update, loaded-game UI and human review remain
+  unexecuted. PR #3 remains draft; unmet v1.1 behavior is not promoted to main.

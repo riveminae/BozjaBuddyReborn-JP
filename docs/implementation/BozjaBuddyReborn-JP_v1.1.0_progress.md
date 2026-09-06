@@ -112,6 +112,7 @@
 - 初回の不具合入力検査でテスト実行器が例外を未捕捉にし、Windowsのエラーダイアログと実行ファイルロックを発生させた。該当テストプロセスだけを終了し、外側の例外境界でexit 1を返すよう修正した。元の検査本文・入力のSHA-256が一致することを確認し、再試行では3件ともダイアログなしのexit 1、その後正常入力は94件成功。製品のゲーム処理のクラッシュではない。
 - 結果コピーの実機UI・実際のクリップボード貼り付け・第三者の日本語読解確認は未実施。試験票作成やmanagedテスト成功をP15実機受入のDONEへ読み替えない。条件・コマンドと限界は[追加依頼の受入記録](japanese-live-review-acceptance-20260906.md)に記載。
 - `295d941`の[CI run 34021021656](https://github.com/riveminae/BozjaBuddyReborn-JP/actions/runs/34021021656)は全工程success。その後、PowerShellの単一要素配列がobjectへ展開される配布一覧の不備を修正し、`dea238a`の[CI run 34021233543](https://github.com/riveminae/BozjaBuddyReborn-JP/actions/runs/34021233543)も全工程success。配布候補`1.0.90.169`の出所とハッシュは[配布受入記録](test-feed-publication-20260906.md)を参照。
+- `38e7f83`で`test-1.0.90.169`とfeature feedを同時公開。認証なしのraw feed取得はHTTP 200、配列形式・版番号・固定URLが一致し、公開ZIPのSHA-256はCI artifactと完全一致。公開commitの[CI run 34021457587](https://github.com/riveminae/BozjaBuddyReborn-JP/actions/runs/34021457587)もsuccess。現在の配布版は`1.0.90.169`であり、以後のCI候補生成だけではfeedを変更しない。
 
 ### 要件差異修正: 遠隔CEの選択条件（2026-09-06）
 

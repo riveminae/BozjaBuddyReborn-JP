@@ -1056,12 +1056,11 @@ public sealed class BozjaController
 
         // AGGRO EN ROUTE. Bozja and Zadnor pull things onto the route constantly, and stopping to
         // kill each one turns a single run into a string of fights that earn nothing and burn the
-        // registration window. So by default we run straight through it: the rotation stays OFF
+        // registration window. So we always run straight through it: the rotation stays OFF
         // for the whole route, nothing is attacked, and field mobs leash off once outrun.
         //
-        // Standing AT the objective is not "en route". There is nowhere further to run, and a
-        // Critical Engagement's registration window has to be waited out where we stand, so
-        // attackers are answered there regardless of the setting.
+        // Standing AT the objective is not "en route". Preserve the existing arrived-objective
+        // defense, but never let a legacy saved FightBack preference interrupt travel.
         // LATCHED, NOT INSTANTANEOUS. CountAttackers is an unlatched object-table scan recomputed
         // every 200ms, and its two branches disagree about everything that matters: RunDefend
         // stops travel, arms the rotation and drives an approach path; the travel branch
@@ -1073,7 +1072,7 @@ public sealed class BozjaController
         //
         // Entering is immediate: being hit is not something to deliberate over. Leaving waits for
         // the field to be genuinely quiet.
-        if (UnderAttack(attackers) && (arrived || _config.AggroResponse == TravelAggroResponse.FightBack))
+        if (UnderAttack(attackers) && arrived)
         {
             RunDefend(objective, attackers);
             return;
@@ -1231,8 +1230,7 @@ public sealed class BozjaController
     /// <summary>
     /// Stand and fight whatever is on us, then let the next tick resume travel once it is dead.
     ///
-    /// Reached once we have arrived at the objective (nowhere left to run), or anywhere on the
-    /// route when the user has asked for <see cref="TravelAggroResponse.FightBack"/>.
+    /// Reached only once we have arrived at the objective. Travel never diverts here to fight.
     /// </summary>
     private void RunDefend(SharedObjective objective, int attackers)
     {

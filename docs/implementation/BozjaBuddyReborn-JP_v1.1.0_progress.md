@@ -60,7 +60,7 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 | P3-01 | WAITING_LIVE_TEST | enemy rank raw diagnostics | raw `NamePlateIconId` / `CharacterData.Icon`取得・診断基盤済み |
 | P3-02 | BLOCKED | direct raw rank mapping | raw pair実データが得られるまで固定mappingしない |
 | P3-03 | DONE | danger rank integration/overlay | IV/V/★/unknown回避 + ★追加clearance + debug world overlay |
-| P4-01 | WAITING_LIVE_TEST | remote CE signup/commence state | 遠隔signup/lottery/commenceコード完成。最終ゲーム挙動のみ未確認 |
+| P4-01 | PARTIAL | remote CE signup/commence state | 遠隔処理の基礎あり。ただし残時間の任意閾値・位置未取得による申請除外が残る（audit GAP-05/06）。修正後に実機確認が必要 |
 | P4-02 | DONE | ActivityPlanner | route-cost、80% cutoff、大規模戦闘最優先、Relic filter実装済み |
 | P4-03 | DONE | RelicFarmPlanner continuation | current-territory auto-continue実装・build済み |
 | P4-04 | DONE | farm target staging | farm対象不在時のAethernet staging実装済み |
@@ -73,7 +73,7 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 | P6-03 | DONE | Supply vs CE arbitration | critical即中断 / routine現スカーミッシュ完走 / CE登録継続 / critical時のみCommence保留 / Cache自動移動・openまでCI済み |
 | P7-01 | DONE | Reraiser risk-window | emergencyへのedgeで1回のみ候補化 |
 | P7-02 | BLOCKED | Essence Initialize integration | priority/bring/autouse/overwrite policyあり。transfer effect待ち |
-| P7-03 | DONE | mounted invariant | mounted中survival Lost Actionを発火しない |
+| P7-03 | WAITING_LIVE_TEST | mounted invariant | mounted中survival Lost Actionを発火しない。2026-09-06に移動中FightBack分岐・設定UIを除去し、旧設定を逃走固定へ補正。静的/Debug/Release検証済み、両フィールド実機確認は未実施 |
 | P8-01 | DONE | TextAdvance wrapper | `External/TextAdvanceIpc.cs` 実装済み |
 | P8-02 | DONE | DeathRecovery state machine | CE待機、skirmish 30s、travel 10s、Return+TextAdvance委譲 |
 | P8-03 | WAITING_LIVE_TEST | TextAdvance death flow | 最終ゲーム挙動のみ未確認 |
@@ -84,7 +84,7 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 | P10-01 | DONE | social request識別 | Party agent強識別 + prompt subject/request二重判定 |
 | P10-02 | DONE | strict social reject | Running中のみ識別済みsocial requestをNo。generic YesNoは触らない |
 | P10-03 | WAITING_LIVE_TEST | false positive確認 | 最終ゲーム表示差分のみ未確認 |
-| P11-01 | DONE | UI tab再編 | top-levelカテゴリ + Lost Action独立subtabまで整理済み |
+| P11-01 | PARTIAL | UI tab再編 | Lost Action独立subtabあり。要件14.2の周回/生存/ロストアクション/移動/Relic/詳細設定への再編は未実装（audit GAP-01） |
 | P11-02 | DONE | main status | route/CE/dependency/survival supply/blacklist表示を拡張済み |
 | P11-03 | DONE | DiagnosticsRecorder | state/status 32件 + warning 16件 ring buffer |
 | P11-04 | DONE | clipboard diagnostics | 個人情報を除外した診断コピー実装済み |
@@ -102,6 +102,15 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 | P15-04 | BLOCKED | RC review/user approval | main merge前の最終工程。自動merge禁止 |
 
 ## CI evidence
+
+### 要件差異修正: 移動中の反撃禁止（2026-09-06）
+
+- 要件6・18、詳細設計6.3、P7-03 / audit GAP-02を対象に、移動中の`FightBack`分岐と選択UIを除去した。旧設定値はmigrationで`KeepRunning`へ補正し、runtimeはこの互換fieldを読まない。
+- 到着後の`RunDefend`・`Commit`・敵検出latchの`UnderAttack`はbaselineと関数本体が完全一致。既存スカーミッシュ戦闘を変更していない。
+- `python -B tools/validate_v110_contract.py`: 修正前exit 1、修正後exit 0。既存検証は変更せず追加のみ。5種類の独立した不具合入力を同一validatorがすべて拒否した。
+- `python -B tools/audit_visible_japanese.py`、`dotnet build BozjaBuddyReborn.csproj -c Debug --no-restore --nologo`、同Release、`git diff --check`: すべてexit 0。NuGet脆弱性情報取得のNU1900警告あり、無効化はしていない。
+- 凍結条件と証拠: [travel aggro acceptance](v1.1-travel-aggro-acceptance-20260906.md)。実機受入・独立した最終RCレビューは未実施であり、main merge合格を意味しない。
+- 併せて古い監査のGAP-05/06とGAP-01を現コードで再確認した。P4-01とP11-01を`PARTIAL`へ訂正し、実装済みという誤った前提で次工程へ進まない。
 
 ### latest validated baseline
 
@@ -168,10 +177,10 @@ Current user commits after that validation are intentionally pushed frequently; 
 
 ユーザー確認/実機確認を要求せず、以下を順次進める。
 
-1. P5-01 Cache transferの公開根拠探索を継続
-2. Cache側在庫不足のread-only診断・同一instanceでの再補給loop防止をtransfer executorと独立して追加
-3. RC前static acceptance checklistを拡張
-4. 実機依存項目は最後にまとめて確認
+1. P4-01 / audit GAP-05/06: 任意の残時間閾値と位置未取得で遠隔CE申請を妨げる条件を修正
+2. P11-01 / audit GAP-01/03/04: 要件の6カテゴリ、必須依存表示、生存候補の持込/自動使用の独立UIを実装
+3. P5-01: 安全なCache転送根拠の確定。公開ClientStructsは2026-09-06にもread構造のみで、転送関数は未定義
+4. Initialize / rollback / 差分補充と未達の実機受入を完了し、main側の配布修正を保持して競合解消・RC検証・mergeへ進む
 
 ## 実機検証方針
 

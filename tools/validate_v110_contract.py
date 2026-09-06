@@ -331,6 +331,21 @@ require(
 require("Automation/HolsterDriver.cs", "if (Mount.IsMounted)", "mounted Lost Action guard exists")
 require("Automation/HolsterDriver.cs", "TickTravelSurvival", "on-foot travel survival path exists")
 
+# Requirement 6: legacy travel preferences must never arm combat before arrival.
+forbid("Automation/BozjaController.cs", "_config.AggroResponse", "travel escape policy is not configurable")
+require(
+    "Automation/BozjaController.cs",
+    "if (UnderAttack(attackers) && arrived)\n        {\n            RunDefend(objective, attackers);",
+    "field defense requires arrival at the objective",
+)
+require_count("Automation/BozjaController.cs", "RunDefend(objective, attackers);", 1, "field defense has one guarded call site")
+forbid("Windows/ConfigWindow.cs", "_config.AggroResponse", "UI cannot restore legacy travel FightBack")
+require(
+    "ConfigMigration.cs",
+    "if (config.AggroResponse != TravelAggroResponse.KeepRunning)\n        {\n            config.AggroResponse = TravelAggroResponse.KeepRunning;\n            changed = true;\n        }",
+    "all legacy travel policies normalize to escape without a schema-version gate",
+)
+
 # CE recruitment safety. These markers protect against the API15 regression that replaced the
 # proven button event path with EventList/ReceiveEvent guesses and against Register->Withdraw
 # double-clicks while the label is settling.

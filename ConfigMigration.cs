@@ -18,6 +18,12 @@ public static class ConfigMigration
             changed = true;
         }
 
+        if (config.AggroResponse != TravelAggroResponse.KeepRunning)
+        {
+            config.AggroResponse = TravelAggroResponse.KeepRunning;
+            changed = true;
+        }
+
         config.BlockedEngagements ??= [];
         config.PriorityEngagements ??= [];
         config.LearnedRegions ??= [];

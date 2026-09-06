@@ -197,33 +197,13 @@ public sealed class ConfigWindow : Window
 
         ImGui.Separator();
 
-        ImGui.TextUnformatted("移動中に敵から感知された場合:");
-
-        var keepRunning = _config.AggroResponse == TravelAggroResponse.KeepRunning;
-
-        if (ImGui.RadioButton(Loc.T("Keep running (never attack)", "そのまま走る（反撃しない）"), keepRunning))
-        {
-            _config.AggroResponse = TravelAggroResponse.KeepRunning;
-            Save();
-        }
-        ImGui.SameLine();
-        if (ImGui.RadioButton(Loc.T("Stop and fight back", "停止して反撃する"), !keepRunning))
-        {
-            _config.AggroResponse = TravelAggroResponse.FightBack;
-            Save();
-        }
-
+        ImGui.TextUnformatted("移動中に敵から感知された場合: 停止せず逃走を継続（固定）");
         ImGui.TextColored(Grey,
-            "「そのまま走る」では移動中のローテーションをOFFにし、道中の敵へ反撃しません。\n" +
-            "十分に離れればフィールド敵は追跡をやめます。感知のたびに停止して戦うと、\n" +
-            "報酬のない戦闘が連続し、\n" +
-            "CEの参加受付時間を消費します。\n" +
-            "目的地へ到着した後は、追ってきた敵にも反撃します。\n" +
-            "CEの抽選待機中など、その場を離れられない状況では戦闘を処理します。\n" +
-            "判定には戦闘フラグではなく、実際に自分をターゲットしている敵を使用します。\n" +
-            "戦闘フラグは敵撃破後もしばらく残るためです。");
+            "移動中はローテーションをOFFにし、道中の敵へ反撃しません。\n" +
+            "マウント中は降りる原因になるアクションを使わず、そのまま逃走します。\n" +
+            "目的地へ到着した後は、既存の戦闘処理で追ってきた敵にも対応します。");
         ImGui.TextColored(Yellow,
-            "戦闘中はマウントできないため、敵に追跡されている間は徒歩で逃走し、\n" +
+            "マウントから落とされた場合は生存処理を再開し、徒歩で逃走します。\n" +
             "追跡が切れた後に再度マウントします。");
 
         var sticky = _config.StickyObjective;

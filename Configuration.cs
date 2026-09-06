@@ -12,6 +12,7 @@ public enum RelicFarmStopMode : byte
     CurrentStageComplete = 2,
 }
 
+/// <summary>Legacy serialized values only. v1.1 travel always keeps running.</summary>
 public enum TravelAggroResponse : byte
 {
     /// <summary>
@@ -20,7 +21,7 @@ public enum TravelAggroResponse : byte
     /// </summary>
     KeepRunning = 0,
 
-    /// <summary>Stop, clear whatever is on us, then resume travel.</summary>
+    /// <summary>Legacy value retained for reading old settings; migration resets it.</summary>
     FightBack = 1,
 }
 
@@ -90,11 +91,8 @@ public sealed class Configuration : IPluginConfiguration
     public bool DoFates = true;
 
     /// <summary>
-    /// What to do about enemies that aggro onto the character WHILE TRAVELLING.
-    ///
-    /// This governs the route only. Standing at the objective is not "en route" - there is
-    /// nowhere further to run, and a Critical Engagement's registration window has to be waited
-    /// out where we stand - so attackers are always answered once we have arrived.
+    /// Legacy compatibility field, not a runtime preference. Migration normalizes it to
+    /// KeepRunning; travel never reads it. Arrived-objective combat is unchanged.
     /// </summary>
     public TravelAggroResponse AggroResponse = TravelAggroResponse.KeepRunning;
 

@@ -105,6 +105,12 @@ jobs:
       - name: Test Japanese live-review recording
         run: dotnet run --project tests/LiveReview/LiveReview.Tests.csproj
 
+      - name: Test CE recruitment row binding and acknowledgement
+        run: dotnet run --project tests/Recruitment/Recruitment.Tests.csproj
+
+      - name: Build read-only recruitment layout probe
+        run: dotnet build tests/UiLayoutProbe/UiLayoutProbe.csproj --nologo
+
       - name: Build Debug
         shell: pwsh
         run: |

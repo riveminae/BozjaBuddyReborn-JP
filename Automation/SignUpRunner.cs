@@ -299,6 +299,7 @@ public sealed class SignUpRunner
         }
 
         var buttons = CollectButtons(addon);
+        var events = ReadRecruitmentEvents(agent);
         LastButtons = Describe(buttons);
         LogButtonsIfChanged();
 
@@ -308,20 +309,20 @@ public sealed class SignUpRunner
                 Advance(SignUpPhase.Registering, Loc.T("Looking for the Register button.", "「参加希望」ボタンを探しています。"));
                 goto case SignUpPhase.Registering;
             case SignUpPhase.Registering:
-                StepRegister(addon, buttons);
+                StepRegister(addon, buttons, events);
                 break;
             case SignUpPhase.AwaitingSelection:
-                StepAwaitSelection(addon, buttons);
+                StepAwaitSelection(addon, buttons, events);
                 break;
             case SignUpPhase.Commencing:
-                StepCommencing(buttons);
+                StepCommencing(buttons, events);
                 break;
         }
     }
 
     private bool Settling => Environment.TickCount64 < _clickSettleUntilMs;
 
-    private unsafe void StepRegister(AtkUnitBase* addon, List<LabelledButton> buttons)
+    private unsafe void StepRegister(AtkUnitBase* addon, List<LabelledButton> buttons, List<RecruitmentEvent> events)
     {
         if (Settling)
         {
@@ -329,44 +330,29 @@ public sealed class SignUpRunner
             return;
         }
 
-        if (Find(buttons, CommenceLabels) is { } commence)
-        {
-            if (HoldCommenceForCriticalSupply())
-                return;
-            if (Click(addon, commence, "Commence"))
-                Advance(SignUpPhase.Commencing, Loc.T("Commencing - waiting to be deployed.", "「戦闘突入」を実行しました。転送を待っています。"));
+        var registeredEventId = CriticalEngagements.RegisteredEventId ?? 0;
+        _targetEventId = _preferredEventId != 0 ? _preferredEventId
+            : registeredEventId != 0 ? registeredEventId : FirstRegisteringEventId();
+        if (!RegistrationMatchesTarget(registeredEventId))
             return;
-        }
-
-        if (CriticalEngagements.RegisteredEventId is { } registeredEventId && registeredEventId != 0)
-        {
-            _targetEventId = registeredEventId;
-            Advance(SignUpPhase.AwaitingSelection, Loc.T("Already registered - waiting for the draw.", "参加申請済み - 抽選結果を待っています。"));
+        if (TryCommence(addon, buttons, events))
             return;
-        }
-        if (Find(buttons, WithdrawLabels) is not null)
+        if (registeredEventId != 0)
         {
             Advance(SignUpPhase.AwaitingSelection, Loc.T("Already registered - waiting for the draw.", "参加申請済み - 抽選結果を待っています。"));
             return;
         }
 
-        if (Find(buttons, RegisterLabels) is { } register)
+        if (RecruitmentTargeting.Find(events, buttons, _targetEventId, RecruitmentAction.Register) is { } register)
         {
-            var first = FirstRegisteringEventId();
-            _targetEventId = _preferredEventId != 0 ? _preferredEventId : first;
-            if (_preferredEventId != 0 && first != 0 && first != _preferredEventId)
-                Svc.Log.Warning(
-                    $"[BozjaBuddyReborn] Preferred CE #{_preferredEventId} differs from the first recruitment row #{first}; " +
-                    "using the current button order for this test build. Capture callback/button diagnostics before tightening row targeting.");
-
             if (Click(addon, register, "Register"))
-                Advance(SignUpPhase.AwaitingSelection, Loc.T("Registered - waiting for the draw.", "参加申請済み - 抽選結果を待っています。"));
+                Advance(SignUpPhase.AwaitingSelection, "参加希望を送信しました。登録先の確認を待っています。");
             return;
         }
 
         if (PhaseAgeMs <= OpenTimeoutMs)
         {
-            Status = Loc.T("Waiting for a Register button.", "「参加希望」ボタンを待っています。");
+            Status = "希望した戦闘と参加ボタンの一致を待っています。";
             return;
         }
 
@@ -375,7 +361,7 @@ public sealed class SignUpRunner
             : "No Critical Engagement is currently recruiting.");
     }
 
-    private unsafe void StepAwaitSelection(AtkUnitBase* addon, List<LabelledButton> buttons)
+    private unsafe void StepAwaitSelection(AtkUnitBase* addon, List<LabelledButton> buttons, List<RecruitmentEvent> events)
     {
         if (Settling)
         {
@@ -383,14 +369,11 @@ public sealed class SignUpRunner
             return;
         }
 
-        if (Find(buttons, CommenceLabels) is { } commence)
-        {
-            if (HoldCommenceForCriticalSupply())
-                return;
-            if (Click(addon, commence, "Commence"))
-                Advance(SignUpPhase.Commencing, Loc.T("Commencing - waiting to be deployed.", "「戦闘突入」を実行しました。転送を待っています。"));
+        var registeredEventId = CriticalEngagements.RegisteredEventId ?? 0;
+        if (!RegistrationMatchesTarget(registeredEventId))
             return;
-        }
+        if (TryCommence(addon, buttons, events))
+            return;
 
         if (PhaseAgeMs > SelectionTimeoutMs)
         {
@@ -398,7 +381,7 @@ public sealed class SignUpRunner
             return;
         }
 
-        if (Find(buttons, WithdrawLabels) is null && Find(buttons, RegisterLabels) is not null)
+        if (registeredEventId == 0 && RecruitmentTargeting.Find(events, buttons, _targetEventId, RecruitmentAction.Register) is not null)
         {
             if (_lapsedSinceMs == 0)
                 _lapsedSinceMs = Environment.TickCount64;
@@ -406,30 +389,44 @@ public sealed class SignUpRunner
             if (Environment.TickCount64 - _lapsedSinceMs > LapsedConfirmMs)
             {
                 _lapsedSinceMs = 0;
-                Advance(SignUpPhase.Registering, "Registration lapsed - trying again.");
+                Advance(SignUpPhase.Registering, "参加希望が反映されていません。希望先を再確認します。");
             }
             return;
         }
 
         _lapsedSinceMs = 0;
-        Status = $"参加申請済み - 抽選結果を待っています（{PhaseAgeMs / 1000}秒）。";
+        Status = registeredEventId == _targetEventId && registeredEventId != 0
+            ? $"参加申請済み - 抽選結果を待っています（{PhaseAgeMs / 1000}秒）。"
+            : "参加希望を送信しました。登録先の確認を待っています。";
     }
 
-    private void StepCommencing(List<LabelledButton> buttons)
+    private bool RegistrationMatchesTarget(ushort registeredEventId)
     {
-        if (Find(buttons, CommenceLabels) is null)
-        {
-            var id = CriticalEngagements.RegisteredEventId;
-            Cancel(id is { } joined
-                ? $"Commenced - deploying to engagement #{joined}."
-                : "Commenced.");
-            Phase = SignUpPhase.Done;
-            return;
-        }
+        if (registeredEventId == 0 || registeredEventId == _targetEventId) return true;
+        Svc.Log.Warning($"[BozjaBuddyReborn] Sign-up: expected CE #{_targetEventId}, observed registration #{registeredEventId}; refusing another click.");
+        Cancel("登録先が希望した戦闘と異なるため、参加操作を中止しました。");
+        return false;
+    }
 
-        if (CriticalEngagements.Current(null) is { IsRunning: true } running)
+    private unsafe bool TryCommence(AtkUnitBase* addon, List<LabelledButton> buttons, List<RecruitmentEvent> events)
+    {
+        if (RecruitmentTargeting.Find(events, buttons, _targetEventId, RecruitmentAction.Commence) is not { } commence)
+            return false;
+        if (HoldCommenceForCriticalSupply()) return true;
+        if (Click(addon, commence, "Commence"))
+            Advance(SignUpPhase.Commencing, "「戦闘突入」を実行しました。転送を待っています。");
+        return true;
+    }
+
+    private void StepCommencing(List<LabelledButton> buttons, List<RecruitmentEvent> events)
+    {
+        if (Settling) return;
+        if (!RegistrationMatchesTarget(CriticalEngagements.RegisteredEventId ?? 0)) return;
+        if (CriticalEngagements.Current(null) is { IsRunning: true } running
+            && running.EventId == _targetEventId
+            && RecruitmentTargeting.Find(events, buttons, _targetEventId, RecruitmentAction.Commence) is null)
         {
-            Cancel($"Deployed to engagement #{running.EventId} - it is under way.");
+            Cancel("希望した戦闘への参加状態を確認しました。");
             Phase = SignUpPhase.Done;
             return;
         }
@@ -441,33 +438,6 @@ public sealed class SignUpRunner
         }
 
         Status = Loc.T("Commencing - waiting to be deployed.", "「戦闘突入」を実行しました。転送を待っています。");
-    }
-
-    private static readonly string[] RegisterLabels = ["register", "request deployment", "deploy", "参加希望"];
-    private static readonly string[] WithdrawLabels = ["withdraw", "cancel deployment", "cancel"];
-    private static readonly string[] CommenceLabels =
-        ["commence", "enter", "join", "deploy now", "proceed", "begin", "start", "戦闘突入"];
-
-    private readonly record struct LabelledButton(nint Button, string Text);
-
-    private static LabelledButton? Find(List<LabelledButton> buttons, string[] labels)
-    {
-        foreach (var b in buttons)
-        {
-            var text = b.Text.Trim().ToLowerInvariant();
-            if (text.Length == 0)
-                continue;
-
-            foreach (var label in labels)
-            {
-                var ascii = true;
-                foreach (var ch in label)
-                    if (ch > 0x7f) { ascii = false; break; }
-                if (text == label || (ascii && text.StartsWith(label, StringComparison.Ordinal)))
-                    return b;
-            }
-        }
-        return null;
     }
 
     private unsafe bool Click(AtkUnitBase* addon, LabelledButton target, string what)
@@ -497,7 +467,7 @@ public sealed class SignUpRunner
 
         // Prefer a click event in the bounded chain. API15 exposes AtkEventType here; the
         // ECommons UIInput EventType alias is only used at the final invocation boundary.
-        var chosen = evt;
+        AtkEvent* chosen = null;
         var node = evt;
         for (var i = 0; i < 16 && node != null; i++)
         {
@@ -509,14 +479,18 @@ public sealed class SignUpRunner
             }
             node = node->NextEvent;
         }
+        if (chosen == null)
+        {
+            Svc.Log.Warning("[BozjaBuddyReborn] Sign-up: no attached click event; refusing a non-click event.");
+            return false;
+        }
 
-        // Register -> Withdraw -> Commence is one physical button whose label changes after the
-        // click. Do not permit a second click until the UI has caught up or Register can turn into
-        // an accidental Withdraw. _clicks also scopes confirmation handling to prompts we caused.
+        // Row actions change visibility/labels after acknowledgement. Do not permit a second
+        // click until the UI has caught up. _clicks scopes confirmations to prompts we caused.
         _clicks++;
         _clickSettleUntilMs = Environment.TickCount64 + ClickSettleMs;
         Svc.Log.Information(
-            $"[BozjaBuddyReborn] Sign-up: clicking \"{target.Text}\" as {what} " +
+            $"[BozjaBuddyReborn] Sign-up: clicking \"{target.Text}\" as {what} for CE #{_targetEventId} " +
             $"(click {_clicks}, event type {chosen->State.EventType}, param {chosen->Param}).");
 
         // MYCBattleAreaInfo dereferences the input-data path; the convenience ReceiveEvent call
@@ -531,6 +505,19 @@ public sealed class SignUpRunner
             eventData,
             inputData);
         return true;
+    }
+
+    private static unsafe List<RecruitmentEvent> ReadRecruitmentEvents(AgentMycBattleAreaInfo* agent)
+    {
+        var result = new List<RecruitmentEvent>(3);
+        var data = agent->MycDynamicEventData;
+        if (data == null || data->Count > data->Array.Length) return result;
+        for (var i = 0; i < data->Count; i++)
+        {
+            ref var entry = ref data->Array[i];
+            result.Add(new RecruitmentEvent(entry.Id, entry.Name.ToString(), (byte)entry.State));
+        }
+        return result;
     }
 
     private static unsafe List<LabelledButton> CollectButtons(AtkUnitBase* addon)
@@ -550,11 +537,24 @@ public sealed class SignUpRunner
             if (mgr->LoadedState != AtkLoadState.Loaded || mgr->NodeList == null)
                 return;
 
+            // MYCBattleAreaInfo.uld component 1007: title 5 and action container 9 share
+            // root 1; button nodes 10..12 belong to container 9. See the read-only layout
+            // probe and docs/research/ce-recruitment-targeting.md. Runtime names bind IDs;
+            // neither duplicated component indices nor array order are used as targets.
+            var root = FindNode(mgr, 1);
+            var title = FindNode(mgr, 5);
+            var actions = FindNode(mgr, 9);
+            var rowName = root != null && title != null && actions != null
+                && root->Type == NodeType.Res && title->Type == NodeType.Text && actions->Type == NodeType.Res
+                && title->ParentNode == root && actions->ParentNode == root
+                && Visible(title) && Visible(actions)
+                    ? ((AtkTextNode*)title)->NodeText.ToString() : string.Empty;
+
             var count = mgr->NodeListCount;
             for (var i = 0; i < count; i++)
             {
                 var node = mgr->NodeList[i];
-                if (node == null || !node->IsVisible())
+                if (node == null || !Visible(node))
                     continue;
                 if ((ushort)node->Type < 1000)
                     continue;
@@ -566,12 +566,34 @@ public sealed class SignUpRunner
                 if (component->GetComponentType() == ComponentType.Button)
                 {
                     var button = (AtkComponentButton*)component;
-                    if (button->IsEnabled)
-                        found.Add(new LabelledButton((nint)button, ReadText(button)));
+                    var id = node->GetBaseNodeId();
+                    if (rowName.Length != 0 && id is >= 10 and <= 12 && node->ParentNode == actions
+                        && button->IsEnabled && button->AtkComponentBase.OwnerNode == (AtkComponentNode*)node)
+                        found.Add(new LabelledButton((nint)button, ReadText(button), rowName));
                 }
 
                 Walk(&component->UldManager, found, depth + 1);
             }
+        }
+
+        static AtkResNode* FindNode(AtkUldManager* mgr, uint id)
+        {
+            AtkResNode* found = null;
+            for (var i = 0; i < mgr->NodeListCount; i++)
+            {
+                var node = mgr->NodeList[i];
+                if (node == null || node->GetBaseNodeId() != id) continue;
+                if (found != null) return null;
+                found = node;
+            }
+            return found;
+        }
+
+        static bool Visible(AtkResNode* node)
+        {
+            for (var depth = 0; node != null && depth < 32; depth++, node = node->ParentNode)
+                if (!node->IsVisible()) return false;
+            return node == null;
         }
 
         static string ReadText(AtkComponentButton* button)

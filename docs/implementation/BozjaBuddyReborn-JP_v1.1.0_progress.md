@@ -60,7 +60,7 @@
 | P3-01 | WAITING_LIVE_TEST | enemy rank raw diagnostics | raw `NamePlateIconId` / `CharacterData.Icon`取得・診断基盤済み |
 | P3-02 | BLOCKED | direct raw rank mapping | raw pair実データが得られるまで固定mappingしない |
 | P3-03 | DONE | danger rank integration/overlay | IV/V/★/unknown回避 + ★追加clearance + debug world overlay |
-| P4-01 | PARTIAL | remote CE signup/commence state | 任意の残時間閾値・位置未取得による申請除外を修正。実C#選択テスト144件合格。SignUpRunnerの優先CEとUIボタンの対応は未確定（ボタン順依存）で、実機一連試験も必要 |
+| P4-01 | WAITING_LIVE_TEST | remote CE signup/commence state | 遠隔選択144件、行/名前/登録IDを照合するrunner等167件成功。画面定義に基づきボタン順依存を解消。実クライアントの複製行/文字列書式・登録先・転送は両フィールドで未確認 |
 | P4-02 | DONE | ActivityPlanner | route-cost、80% cutoff、大規模戦闘最優先、Relic filter実装済み |
 | P4-03 | DONE | RelicFarmPlanner continuation | current-territory auto-continue実装・build済み |
 | P4-04 | DONE | farm target staging | farm対象不在時のAethernet staging実装済み |
@@ -103,6 +103,14 @@
 
 ## CI evidence
 
+### 要件差異修正: 参加希望先と画面行の対応（2026-09-06）
+
+- 要件4.2/10.3、P4-01。ディスク上の画面定義を既存Luminaで読み、行内の名前欄と操作欄の親子関係を確認した。ゲーム入力やプロセスメモリには触れていない。資産本体は保存/配布せず、[調査記録](../research/ce-recruitment-targeting.md)に構造と識別ハッシュを残した。
+- 本番ではAgentのID/名前/状態と、可視な同一行の名前/有効ボタンを一致させる。先頭ボタンへの代替を削除し、重複・不一致・未知の画面構造では操作しない。実登録IDの不一致は中止、送信と登録確認を区別、抽選失効と戦闘突入も希望先に限定した。既存の具体的event/input dataと連打防止・補給例外は保持した。
+- `tests/Recruitment` は本番runner/collector/targetingをリンクして167件、exit 0。行順依存・二重申請・ボタン消失だけで成功する3不具合は同じ入力でexit 1。復元後も167件成功し、ソースと試験入力ハッシュ一致。30秒の外側制限でも1/1/1/0を確認した。
+- 既存144件/94件、静的契約、日本語UI監査、packet適用2回の170ファイル差分不変、Debug/Release、diff検査はexit 0。詳細は[受入記録](ce-ui-binding-acceptance-20260906.md)。ローカルNU1900警告は維持し、監査を無効化していない。
+- **P4-01の実機部分は未確認。** 動的な行/文字列書式、複数CEの実登録IDと転送を両フィールドで確認する。合成ホスト試験を実機の合格に読み替えない。独立レビューも未実施。テストfeedの現在版は変えていない。
+
 ### 追加依頼: 日本語の実機試験票と結果コピー（2026-09-06）
 
 - 実施者向け成果物: [実機受入試験票](../testing/実機受入試験票.md)。55項目に準備・操作・合格条件・記録を設定し、両エリアと異常系を含めた。準備担当者が埋める環境票、損失上限、中止・復元、条件ごとの未判定/実施不可を明記した。
@@ -121,7 +129,7 @@
 - `dotnet run --project tests/CeSelection/CeSelection.Tests.csproj`: 修正前exit 1（31/144）、修正後exit 0（144/144）。本番TargetSelector・RegionResolver・Configuration・CeSnapshot・Relic定義をリンクし、ホストサービスだけをstub化している。
 - 静的契約・日本語UI監査・packet全適用2回・Debug/Release・diff検査はすべてexit 0。既存検査は維持し、同C#テストをCIへ追加した。ローカルbuildのNU1900警告は未解消。
 - SignUpRunner・登録の単一実行guard・既存戦闘の本体はbaselineと同一。凍結条件と検証範囲は[CE eligibility acceptance](v1.1-ce-eligibility-acceptance-20260906.md)に記録した。
-- **P4-01はまだ完了ではない。** 優先CEのIDは渡されるが、SignUpRunnerは異なる先頭候補を検出してもボタン順でクリックする。正しいCEとUI操作の対応の確定、および両フィールドの実機受入が残る。
+- **この時点ではP4-01は未完了。** 優先CEのIDは渡されるが、SignUpRunnerは異なる先頭候補を検出してもボタン順でクリックしていた。後続の「参加希望先と画面行の対応」で実装を修正した。両フィールドの実機受入は引き続き残る。
 - 修正commit `c2a104f`の[CI run 34019213413](https://github.com/riveminae/BozjaBuddyReborn-JP/actions/runs/34019213413)は全工程success。候補版は`1.0.90.167`。選択ロジック検査144件、packet適用・冪等性・静的契約・日本語UI・Debug/Release・version同期・artifact uploadを確認した。これは公開feed反映の証跡ではない。
 
 ### 要件差異修正: 移動中の反撃禁止（2026-09-06）
@@ -201,8 +209,8 @@ Current user commits after that validation are intentionally pushed frequently; 
 
 ユーザー確認/実機確認を要求せず、以下を順次進める。
 
-1. P4-01: 選択した優先CEのIDと申請UIの行/ボタンの対応を公開ソースまたは実観測で確定し、ボタン順依存を解消
-2. P11-01 / audit GAP-01/03/04: 要件の6カテゴリ、必須依存表示、生存候補の持込/自動使用の独立UIを実装
+1. P11-01 / audit GAP-01/03/04: 要件の6カテゴリ、必須依存表示、生存候補の持込/自動使用の独立UIを実装
+2. P4-01: 行/ボタンの対応実装は機械検証済み。両フィールドの実登録ID/当選後の転送を最終実機受入で確認
 3. P5-01: 安全なCache転送根拠の確定。公開ClientStructsは2026-09-06にもread構造のみで、転送関数は未定義
 4. Initialize / rollback / 差分補充と未達の実機受入を完了し、main側の配布修正を保持して競合解消・RC検証・mergeへ進む
 

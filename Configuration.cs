@@ -12,7 +12,6 @@ public enum RelicFarmStopMode : byte
     CurrentStageComplete = 2,
 }
 
-/// <summary>Legacy serialized values only. v1.1 travel always keeps running.</summary>
 public enum TravelAggroResponse : byte
 {
     /// <summary>

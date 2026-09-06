@@ -111,6 +111,8 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 - `python -B tools/audit_visible_japanese.py`、`dotnet build BozjaBuddyReborn.csproj -c Debug --no-restore --nologo`、同Release、`git diff --check`: すべてexit 0。NuGet脆弱性情報取得のNU1900警告あり、無効化はしていない。
 - 凍結条件と証拠: [travel aggro acceptance](v1.1-travel-aggro-acceptance-20260906.md)。実機受入・独立した最終RCレビューは未実施であり、main merge合格を意味しない。
 - 併せて古い監査のGAP-05/06とGAP-01を現コードで再確認した。P4-01とP11-01を`PARTIAL`へ訂正し、実装済みという誤った前提で次工程へ進まない。
+- CI `34018208530` はpacket適用・冪等性・静的検証まで成功したが、Debugで`CS0101: RelicFarmStopMode`重複定義となった。既存packetがenum前へのXMLコメント追加を未適用と判定して再挿入したため、宣言間の追加コメントだけを除去した。互換field/valueの説明は維持し、packetや検証条件は変更していない。
+- 修正後は`python -B tools/packets/run_all.py`をローカルで2回実行し、両方exit 0・追跡ソース差分不変。続く静的契約・日本語UI監査・Debug/Release再buildもすべてexit 0。
 
 ### latest validated baseline
 

@@ -110,11 +110,11 @@ public sealed class SurvivalPolicy(Configuration config, LostActionCatalog catal
 
     public bool BringAllowed(LostActionCatalog.Entry entry)
         => Permission(_config.LostActionBringPermissions, entry,
-            defaultValue: !IsDeep(entry));
+            defaultValue: DefaultAllowed(entry));
 
     public bool AutoUseAllowed(LostActionCatalog.Entry entry)
         => Permission(_config.LostActionAutoUsePermissions, entry,
-            defaultValue: !IsDeep(entry));
+            defaultValue: DefaultAllowed(entry));
 
     public bool HasAutoPotion()
     {
@@ -168,6 +168,7 @@ public sealed class SurvivalPolicy(Configuration config, LostActionCatalog catal
             if (actions == null)
                 return;
 
+            var complete = true;
             foreach (var entry in _catalog.All)
             {
                 if (entry.ActionId == 0)
@@ -176,9 +177,13 @@ public sealed class SurvivalPolicy(Configuration config, LostActionCatalog catal
                 var name = row?.Name.ExtractText() ?? string.Empty;
                 if (name.Length > 0)
                     _byEnglishName[name] = entry;
+                else
+                    complete = false;
             }
 
-            _indexed = true;
+            // An empty/partial catalog can occur while game data is unavailable. Do not seal
+            // that result forever or classify an unresolved rare item as an ordinary default.
+            _indexed = complete && _byEnglishName.Count > 0;
         }
         catch
         {
@@ -212,12 +217,12 @@ public sealed class SurvivalPolicy(Configuration config, LostActionCatalog catal
         return 0;
     }
 
-    private bool IsDeep(LostActionCatalog.Entry entry)
+    private bool DefaultAllowed(LostActionCatalog.Entry entry)
     {
         EnsureIndex();
         foreach (var (name, indexed) in _byEnglishName)
             if (indexed.RowId == entry.RowId)
-                return name.StartsWith("Deep Essence of ", StringComparison.Ordinal);
+                return !name.StartsWith("Deep Essence of ", StringComparison.Ordinal);
         return false;
     }
 

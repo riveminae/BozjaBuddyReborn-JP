@@ -163,8 +163,6 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
             return false;
 
         var holster = FieldState.Holster();
-        if (holster.Length == 0)
-            return false;
 
         // Walk the user's priority order, not the holster order.
         foreach (var wanted in _config.AutoLostActions)
@@ -174,7 +172,7 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
 
             // An unresolved row cannot be classified, and classifying one wrongly as an item means
             // consuming it outright. Skip it rather than guess.
-            if (!_catalog.TryGet(wanted, out var entry) || entry.ActionId == 0)
+            if (!_catalog.TryGet(wanted, out var entry) || entry.ActionId == 0 || !_survival.AutoUseAllowed(entry))
                 continue;
 
             // Ahead of both branches on purpose: an Essence still running and a Lost Protect still
@@ -254,8 +252,6 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
             return false;
 
         var holster = FieldState.Holster();
-        if (holster.Length == 0)
-            return false;
 
         // Potion Kit is prophylaxis: maintain Auto-potion whenever naturally unmounted.
         if (!_survival.HasAutoPotion()
@@ -400,6 +396,16 @@ public sealed class HolsterDriver(Configuration config, LostActionCatalog catalo
     /// </summary>
     private bool FinishLoad(long now)
     {
+        // Permission can change between loading and pressing. A pending operation is not a
+        // reservation to spend after the user has revoked it; bring permission is unrelated.
+        if (!_catalog.TryGet(_pendingRow, out var pending) || !_survival.AutoUseAllowed(pending)
+            || (_pendingSurvival ? !_config.AutoSurvivalLostActions
+                : !_config.AutoUseLostActions || !_config.AutoFireLostActions || !_config.AutoLostActions.Contains(_pendingRow)))
+        {
+            LastResult = "自動使用の許可を確認できないため、待機中の発動を中止しました。";
+            Abandon();
+            return false;
+        }
         var name = _catalog.Name(_pendingRow);
 
         if (DutyActions.Read(DriverSlot).ActionId != _pendingActionId)

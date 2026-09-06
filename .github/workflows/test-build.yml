@@ -108,6 +108,9 @@ jobs:
       - name: Test CE recruitment row binding and acknowledgement
         run: dotnet run --project tests/Recruitment/Recruitment.Tests.csproj
 
+      - name: Test independent Lost Action permissions across consumers
+        run: dotnet run --project tests/SurvivalPermissions/SurvivalPermissions.Tests.csproj
+
       - name: Build read-only recruitment layout probe
         run: dotnet build tests/UiLayoutProbe/UiLayoutProbe.csproj --nologo
 

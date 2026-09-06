@@ -69,6 +69,7 @@ public sealed class PartySupportDriver(Configuration config, LostActionCatalog c
 
     private readonly Configuration _config = config;
     private readonly LostActionCatalog _catalog = catalog;
+    private readonly SurvivalPolicy _survival = new(config, catalog);
 
     private enum Phase { Idle, WaitingForLoad }
 
@@ -197,6 +198,13 @@ public sealed class PartySupportDriver(Configuration config, LostActionCatalog c
             return;
         }
 
+        if (Mount.IsMounted)
+        {
+            Abandon();
+            Status = "マウント中のため、パーティ支援のアクションを使用せず待機しています。";
+            return;
+        }
+
         if (_phase == Phase.WaitingForLoad)
         {
             FinishLoad(now);
@@ -234,7 +242,7 @@ public sealed class PartySupportDriver(Configuration config, LostActionCatalog c
         {
             foreach (var row in _config.PartySupportActions)
             {
-                if (row == 0 || !_catalog.TryGet(row, out var entry) || !entry.IsPartySupport)
+                if (row == 0 || !_catalog.TryGet(row, out var entry) || !entry.IsPartySupport || !_survival.AutoUseAllowed(entry))
                     continue;
 
                 var slot = SlotHolding(entry.ActionId);
@@ -506,6 +514,8 @@ public sealed class PartySupportDriver(Configuration config, LostActionCatalog c
     /// </summary>
     private bool Fire(int slot, LostActionCatalog.Entry entry, PartyView.Member member, long now)
     {
+        if (Mount.IsMounted || !_survival.AutoUseAllowed(entry))
+            return false;
         // EVERY EXIT BELOW SPENDS THE WINDOW, refusals included. Without that, a target the game
         // keeps declining would be retried on every single tick.
         _lastActionMs = now;
@@ -546,6 +556,13 @@ public sealed class PartySupportDriver(Configuration config, LostActionCatalog c
     /// <summary>Second half of a load: fire once the slot reports the action we asked for.</summary>
     private void FinishLoad(long now)
     {
+        if (!_catalog.TryGet(_pendingRow, out var pending) || !_survival.AutoUseAllowed(pending)
+            || !_config.PartySupportActions.Contains(_pendingRow))
+        {
+            Status = "自動使用の許可を確認できないため、待機中の支援を中止しました。";
+            Abandon();
+            return;
+        }
         var driveSlot = Math.Clamp(_config.PartySupportSlot, 0, DutyActions.SlotCount - 1);
         var name = _catalog.Name(_pendingRow);
 

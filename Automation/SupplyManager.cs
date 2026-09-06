@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using BozjaBuddyReborn.Game;
 
 namespace BozjaBuddyReborn.Automation;
@@ -51,16 +52,18 @@ public sealed class SupplyManager(Configuration config, LostActionCatalog catalo
         if (!supply.InventoryAvailable || !supply.NeedsRoutineRefill)
             return false;
 
-        if (supply.PotionKits < Math.Max(0, _config.SupplyPotionKitLow)
+        var box = _inventory.Read();
+        if (!box.Available) return false;
+        if (NeedsRefill(box, Candidates("Resistance Potion Kit"), _config.SupplyPotionKitLow)
             && HasUnlatchedCandidate(Candidates("Resistance Potion Kit")))
             return true;
-        if (supply.Reraisers < Math.Max(0, _config.SupplyReraiserLow)
+        if (NeedsRefill(box, Candidates("Resistance Reraiser"), _config.SupplyReraiserLow)
             && HasUnlatchedCandidate(Candidates("Resistance Reraiser")))
             return true;
-        if (supply.MainHealUnits < Math.Max(0, _config.SupplyMainHealLow)
+        if (NeedsRefill(box, MainHealCandidates(), _config.SupplyMainHealLow)
             && HasUnlatchedCandidate(MainHealCandidates()))
             return true;
-        if (supply.EmergencyDefenseUnits < Math.Max(0, _config.SupplyEmergencyDefenseLow)
+        if (NeedsRefill(box, Candidates("Lost Manawall"), _config.SupplyEmergencyDefenseLow)
             && HasUnlatchedCandidate(Candidates("Lost Manawall")))
             return true;
 
@@ -70,8 +73,8 @@ public sealed class SupplyManager(Configuration config, LostActionCatalog catalo
     /// <summary>Whether a critical no-recovery state still has an untested Cache recovery candidate.</summary>
     public bool CanAttemptCriticalRecovery(SupplyStatus supply)
         => !supply.CriticalNoRecovery
-           || HasUnlatchedCandidate(Candidates("Resistance Potion Kit"))
-           || HasUnlatchedCandidate(MainHealCandidates());
+           || HasUnlatchedCandidate(Candidates("Resistance Potion Kit").Where(_survival.AutoUseAllowed))
+           || HasUnlatchedCandidate(MainHealCandidates().Where(_survival.AutoUseAllowed));
 
     /// <summary>
     /// Inspect the Cache only after the real MYCItemBox was opened. Zero-count rows are latched
@@ -85,11 +88,11 @@ public sealed class SupplyManager(Configuration config, LostActionCatalog catalo
 
         List<string> reasons = [];
         var needPotion = supply.CriticalNoRecovery
-                         || supply.PotionKits < Math.Max(0, _config.SupplyPotionKitLow);
+                         || NeedsRefill(box, Candidates("Resistance Potion Kit"), _config.SupplyPotionKitLow);
         var needHeal = supply.CriticalNoRecovery
-                       || supply.MainHealUnits < Math.Max(0, _config.SupplyMainHealLow);
-        var needReraiser = supply.Reraisers < Math.Max(0, _config.SupplyReraiserLow);
-        var needDefense = supply.EmergencyDefenseUnits < Math.Max(0, _config.SupplyEmergencyDefenseLow);
+                       || NeedsRefill(box, MainHealCandidates(), _config.SupplyMainHealLow);
+        var needReraiser = NeedsRefill(box, Candidates("Resistance Reraiser"), _config.SupplyReraiserLow);
+        var needDefense = NeedsRefill(box, Candidates("Lost Manawall"), _config.SupplyEmergencyDefenseLow);
 
         var potionAvailable = needPotion
             && InspectCandidates(box, Candidates("Resistance Potion Kit"), "Resistance Potion Kit", reasons);
@@ -105,7 +108,9 @@ public sealed class SupplyManager(Configuration config, LostActionCatalog catalo
             || (needHeal && healAvailable)
             || (needReraiser && reraiserAvailable)
             || (needDefense && defenseAvailable);
-        var canRecoverCritical = !supply.CriticalNoRecovery || potionAvailable || healAvailable;
+        var canRecoverCritical = !supply.CriticalNoRecovery
+            || HasUsableCacheStock(box, Candidates("Resistance Potion Kit"))
+            || HasUsableCacheStock(box, MainHealCandidates());
 
         return new CacheSupplyInspection(true, canImproveRoutine, canRecoverCritical, reasons);
     }
@@ -122,14 +127,14 @@ public sealed class SupplyManager(Configuration config, LostActionCatalog catalo
         var heals = MainHealUnits(box);
 
         List<string> reasons = [];
-        if (potion < Math.Max(0, _config.SupplyPotionKitLow))
-            reasons.Add($"Potion Kit reserve {potion} < {_config.SupplyPotionKitLow}");
-        if (reraiser < Math.Max(0, _config.SupplyReraiserLow))
-            reasons.Add($"Reraiser reserve {reraiser} < {_config.SupplyReraiserLow}");
-        if (heals < Math.Max(0, _config.SupplyMainHealLow))
-            reasons.Add($"main heal reserve {heals} < {_config.SupplyMainHealLow}");
-        if (manawall < Math.Max(0, _config.SupplyEmergencyDefenseLow))
-            reasons.Add($"emergency defense reserve {manawall} < {_config.SupplyEmergencyDefenseLow}");
+        if (NeedsRefill(box, Candidates("Resistance Potion Kit"), _config.SupplyPotionKitLow))
+            reasons.Add($"Potion Kit bring-enabled reserve is below {_config.SupplyPotionKitLow}");
+        if (NeedsRefill(box, Candidates("Resistance Reraiser"), _config.SupplyReraiserLow))
+            reasons.Add($"Reraiser bring-enabled reserve is below {_config.SupplyReraiserLow}");
+        if (NeedsRefill(box, MainHealCandidates(), _config.SupplyMainHealLow))
+            reasons.Add($"main heal bring-enabled reserve is below {_config.SupplyMainHealLow}");
+        if (NeedsRefill(box, Candidates("Lost Manawall"), _config.SupplyEmergencyDefenseLow))
+            reasons.Add($"emergency defense bring-enabled reserve is below {_config.SupplyEmergencyDefenseLow}");
 
         // User requirement: only the complete absence of both Potion Kit reserve/effect and a
         // usable self-heal justifies abandoning the current skirmish immediately for supply.
@@ -157,7 +162,7 @@ public sealed class SupplyManager(Configuration config, LostActionCatalog catalo
         // expose how many duty charges that future load will materialise as. This may request a
         // refill early, but can never falsely report five heals that do not exist.
         var total = 0;
-        foreach (var entry in MainHealCandidates())
+        foreach (var entry in MainHealCandidates(forRefill: false))
         {
             total += box.HolsterCount(entry.RowId);
             total += LoadedCharges(entry);
@@ -165,7 +170,7 @@ public sealed class SupplyManager(Configuration config, LostActionCatalog catalo
         return total;
     }
 
-    private IEnumerable<LostActionCatalog.Entry> MainHealCandidates()
+    private IEnumerable<LostActionCatalog.Entry> MainHealCandidates(bool forRefill = true)
     {
         string[] priority = _survival.Role == SurvivalRole.Healer
             ? ["Lost Full Cure"]
@@ -174,7 +179,7 @@ public sealed class SupplyManager(Configuration config, LostActionCatalog catalo
         foreach (var name in priority)
         {
             var entry = _survival.Find(name);
-            if (entry is { } e && _survival.BringAllowed(e))
+            if (entry is { } e && (forRefill ? _survival.BringAllowed(e) : _survival.AutoUseAllowed(e)))
                 yield return e;
         }
     }
@@ -195,6 +200,25 @@ public sealed class SupplyManager(Configuration config, LostActionCatalog catalo
             if (!_cacheUnavailableForInstance.Contains(entry.RowId))
                 return true;
         return false;
+    }
+
+    private bool HasUsableCacheStock(LostItemBoxSnapshot box, IEnumerable<LostActionCatalog.Entry> candidates)
+        => candidates.Any(entry => _survival.AutoUseAllowed(entry)
+            && !_cacheUnavailableForInstance.Contains(entry.RowId) && box.CacheCount(entry.RowId) > 0);
+
+    private static bool NeedsRefill(LostItemBoxSnapshot box, IEnumerable<LostActionCatalog.Entry> candidates, int low)
+    {
+        var any = false;
+        var reserve = 0;
+        foreach (var entry in candidates)
+        {
+            any = true;
+            // Refilling counts what is held, even if automatic use is currently disabled.
+            // Critical recovery instead counts only usable stock; these are different questions.
+            reserve += box.HolsterCount(entry.RowId);
+            if (entry.IsAction) reserve += LoadedCharges(entry);
+        }
+        return any && reserve < Math.Max(0, low);
     }
 
     private bool InspectCandidates(
@@ -230,13 +254,13 @@ public sealed class SupplyManager(Configuration config, LostActionCatalog catalo
     private int Count(LostItemBoxSnapshot box, string englishName)
     {
         var entry = _survival.Find(englishName);
-        return entry is { } e && _survival.BringAllowed(e) ? box.HolsterCount(e.RowId) : 0;
+        return entry is { } e && _survival.AutoUseAllowed(e) ? box.HolsterCount(e.RowId) : 0;
     }
 
     private int LoadedCharges(string englishName)
     {
         var entry = _survival.Find(englishName);
-        return entry is { } e ? LoadedCharges(e) : 0;
+        return entry is { } e && _survival.AutoUseAllowed(e) ? LoadedCharges(e) : 0;
     }
 
     private static int LoadedCharges(LostActionCatalog.Entry entry)

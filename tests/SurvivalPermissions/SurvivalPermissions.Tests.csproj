@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Configuration.cs" Link="Production/Configuration.cs" />
+    <Compile Include="../../Game/SurvivalPolicy.cs" Link="Production/SurvivalPolicy.cs" />
+    <Compile Include="../../Automation/HolsterDriver.cs" Link="Production/HolsterDriver.cs" />
+    <Compile Include="../../Automation/PartySupportDriver.cs" Link="Production/PartySupportDriver.cs" />
+    <Compile Include="../../Automation/SupplyManager.cs" Link="Production/SupplyManager.cs" />
+  </ItemGroup>
+</Project>

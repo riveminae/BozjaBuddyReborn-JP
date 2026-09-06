@@ -141,6 +141,8 @@ public sealed class MainWindow : Window
                 ImGui.TextColored(supplyColour,
                     $"生存在庫: Potion Kit {supply.PotionKits} / Reraiser {supply.Reraisers} / " +
                     $"主回復 {supply.MainHealUnits} / Manawall {supply.EmergencyDefenseUnits}（{supplyState}）");
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("自動使用を許可した回復・防御手段だけを数えています。主回復と防御には装填済みの残り使用回数も含みます。実所持数はゲーム画面で確認してください。");
             }
             else
             {

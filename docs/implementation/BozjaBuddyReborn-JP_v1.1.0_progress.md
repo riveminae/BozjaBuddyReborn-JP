@@ -68,7 +68,7 @@
 | P5-02 | DONE | HolsterInventory abstraction | `LostItemBoxInventory`, snapshot, `SurvivalLoadoutPlanner` 実装済み |
 | P5-03 | BLOCKED | Initialize正常系 | target planningまでは完成。transfer effectのみP5-01待ち |
 | P5-04 | BLOCKED | Initialize rollback | snapshot/transaction設計済み。実transfer確定待ち |
-| P6-01 | DONE | low-watermark model | `SupplyManager` + target counts実装済み |
+| P6-01 | DONE | low-watermark model | `SupplyManager` + target counts実装済み。2026-09-06に使用可能数と持込在庫数を分離、使用禁止品による危機判定漏れ・通常補給の反復を合成ホストで検査 |
 | P6-02 | BLOCKED | differential refill | transfer effect待ち |
 | P6-03 | DONE | Supply vs CE arbitration | critical即中断 / routine現スカーミッシュ完走 / CE登録継続 / critical時のみCommence保留 / Cache自動移動・openまでCI済み |
 | P7-01 | DONE | Reraiser risk-window | emergencyへのedgeで1回のみ候補化 |
@@ -102,6 +102,14 @@
 | P15-04 | BLOCKED | RC review/user approval | main merge前の最終工程。自動merge禁止 |
 
 ## CI evidence
+
+### 要件差異修正: 持込と自動使用の独立性（2026-09-06）
+
+- 要件8.1/8.2、9、10、14.2、P7/P6/P11。設定画面の調査で、通常使用とパーティ支援が自動使用許可を無視し、装填後の許可取消も見ていない差異を発見した。既存の辞書を各経路へ接続し、マウント中の支援も止めた。既存戦闘制御と設定スキーマは未変更。
+- ホルダーが空でも装填済みアクションを使う経路を修正した。補給は持込許可、危機判定は自動使用可能な回復手段で評価する。持込不可でも手元の使用可能品は利用でき、使用禁止品を実所持数不足と取り違えて往復しない。欠品記録は維持した。
+- 本番方針・通常/生存/支援・補給判定をリンクした `tests/SurvivalPermissions` は修正前exit 1、修正後103件exit 0。同じ検査入力で6不具合を個別に入れ、全てexit 1で拒否。各試行は外側30秒以内、復元後103件成功。詳細・ハッシュ・改行正規化の扱いは[受入記録](lost-action-permission-acceptance-20260906.md)。
+- 既存405件を含む計508件、静的契約、日本語UI監査、Debug/Release、diff検査はexit 0。packetは初回の改行正規化を検出して内容確認後、2回連続で176入力のハッシュ一致。既存検査・入力・packetは弱めていない。ローカルNU1900警告は残る。
+- 試験票55項目と結果コピーに在庫値の解釈を補足した。試験票のLatin全文検査と7不正入力検査も成功。**実機・独立レビューは未確認。** 六分類と許可設定の画面は未実装のためP11-01はPARTIALを維持し、転送や最終受入を完了扱いにしない。
 
 ### 要件差異修正: 参加希望先と画面行の対応（2026-09-06）
 

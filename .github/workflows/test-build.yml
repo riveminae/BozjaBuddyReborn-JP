@@ -152,7 +152,7 @@ jobs:
             DownloadLinkUpdate = $downloadUrl
             DownloadLinkTesting = $downloadUrl
           }
-          @($entry) | ConvertTo-Json -Depth 6 | Set-Content -Path pluginmaster-test.json -Encoding utf8
+          ConvertTo-Json -InputObject @($entry) -Depth 6 | Set-Content -Path pluginmaster-test.json -Encoding utf8
 
       - name: Verify packaged assembly version
         shell: pwsh
@@ -165,7 +165,15 @@ jobs:
           if ($actual -ne $expected) {
             throw "Assembly version mismatch: expected $expected, got $actual"
           }
-          $manifest = Get-Content pluginmaster-test.json -Raw | ConvertFrom-Json
+          $manifestText = Get-Content pluginmaster-test.json -Raw
+          $manifestDocument = [System.Text.Json.JsonDocument]::Parse($manifestText)
+          try {
+            if ($manifestDocument.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Array -or
+                $manifestDocument.RootElement.GetArrayLength() -ne 1) {
+              throw 'The custom repository feed must be a JSON array containing one plugin.'
+            }
+          } finally { $manifestDocument.Dispose() }
+          $manifest = $manifestText | ConvertFrom-Json
           if ($manifest[0].AssemblyVersion -ne $expected) {
             throw 'Manifest version does not match source-of-truth version.'
           }

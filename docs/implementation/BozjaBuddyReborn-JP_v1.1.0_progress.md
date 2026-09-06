@@ -1,11 +1,11 @@
 # BozjaBuddyReborn-JP v1.1.0 実装進捗
 
-最終更新: 2026-09-02  
-branch: `feat/bocchi-navigation`  
-main baseline: `038faf8d70b2aea7189143f7fd46a8c135cb0484`  
-最新CI検証commit: `04c701acc45e0f8d9c6de0d3810f427f40e330db`  
-最新CI検証Test version: `1.0.90.151`  
-Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
+- 最終更新: 2026-09-06
+- branch: `feat/bocchi-navigation`
+- 初期main baseline: `038faf8d70b2aea7189143f7fd46a8c135cb0484`
+- 最新CI検証commit: `2a796e7ffb6ef0871a0b11e2a11d2272064de778`
+- 最新CI検証Test候補version: `1.0.90.165`（artifactのみ。公開feedは`1.0.90.162`）
+- Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 
 ## ステータス定義
 
@@ -20,8 +20,8 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 
 ## 現在地点の重要事項
 
-- Debug / Release build、packet冪等性検証、static contract、日本語UI audit、test ZIP、manifest version検証、test repository publishまでCI成功済み。
-- Test版はGitHub Actions run numberから毎回異なる `1.0.90.x` を生成するため、同一versionのZIP差し替えではなくDalamudが更新判定できる形になった。
+- Debug / Release build、packet冪等性検証、static contract、日本語UI audit、test ZIP、manifest version検証まで最新CI成功済み。現在のworkflowはartifactのみ生成し、公開feedを自動で上書きしない。
+- Test候補はGitHub Actions run numberから毎回異なる `1.0.90.x` を生成する。配信には検証済みZIPのタグ固定とfeed更新が別途必要で、現時点の公開版は `1.0.90.162`。
 - `tools/packets/run_all.py` はWindows runnerでもUTF-8固定で実行し、CIではpacketを2回連続適用して2回目のGit treeが完全不変であることを検査する。1回目だけ成功するbrittle packetをcompile前に検出できる。
 - `tools/validate_v110_contract.py` をCIへ組み込み、CE安全クリック、mounted invariant、補給優先順位、依存復旧、敵ランク安全側判定、BOCCHI経路計測の安全性、AGPL/provenance等の設計不変条件をcompile前に検査する。
 - BOCCHI-style Direct / Aethernet / Return 経路は実装済み。出発AethernetはBOCCHIと同じ `base camp → 45y graph snap → nearest node` で1ノードに解決する。
@@ -113,6 +113,7 @@ Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 - 併せて古い監査のGAP-05/06とGAP-01を現コードで再確認した。P4-01とP11-01を`PARTIAL`へ訂正し、実装済みという誤った前提で次工程へ進まない。
 - CI `34018208530` はpacket適用・冪等性・静的検証まで成功したが、Debugで`CS0101: RelicFarmStopMode`重複定義となった。既存packetがenum前へのXMLコメント追加を未適用と判定して再挿入したため、宣言間の追加コメントだけを除去した。互換field/valueの説明は維持し、packetや検証条件は変更していない。
 - 修正後は`python -B tools/packets/run_all.py`をローカルで2回実行し、両方exit 0・追跡ソース差分不変。続く静的契約・日本語UI監査・Debug/Release再buildもすべてexit 0。
+- 修正commit `2a796e7`の[CI run 34018380013](https://github.com/riveminae/BozjaBuddyReborn-JP/actions/runs/34018380013)は全工程success。packet適用2回・冪等性・静的契約・日本語UI・Debug/Release・version同期・artifact uploadを確認した。候補 `1.0.90.165` はまだ公開feedに反映していない。
 
 ### latest validated baseline
 

@@ -349,6 +349,10 @@ require(
 # CE recruitment safety. These markers protect against the API15 regression that replaced the
 # proven button event path with EventList/ReceiveEvent guesses and against Register->Withdraw
 # double-clicks while the label is settling.
+forbid("Automation/TargetSelector.cs", "_config.MinRegisterSecondsLeft", "remote CE selection has no legacy time margin")
+forbid("Automation/TargetSelector.cs", "if (!ce.HasPosition)", "remote CE registration does not require map position")
+forbid("Automation/BozjaController.cs", "_config.MinRegisterSecondsLeft", "legacy CE objectives cannot restore a registration time margin")
+forbid("Windows/ConfigWindow.cs", "_config.MinRegisterSecondsLeft", "UI cannot configure a forbidden CE registration delay")
 require(
     "Automation/SignUpRunner.cs",
     "using var eventData = EventData.ForNormalTarget(ownerNode, addon);",

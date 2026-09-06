@@ -229,6 +229,10 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
     /// </summary>
     private bool PassesFarmFilter(ObjectiveKind kind, uint id, Vector3 position, DropActivity activity)
     {
+        var territory = Svc.ClientState.TerritoryType;
+        if (RestrictedTerritory != 0 && RestrictedTerritory != territory)
+            return false;
+
         var (requiredRegion, requiredActivity) = Restriction;
 
         if (requiredRegion == FieldRegionId.Unknown)
@@ -237,7 +241,6 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
         if (requiredActivity is { } wanted && wanted != DropActivity.Any && wanted != activity)
             return false;
 
-        var territory = Svc.ClientState.TerritoryType;
         var region = _regions.Resolve(territory, kind, id, position);
 
         // Neither learned nor confidently placeable. An explicit Relic target is fail-closed:
@@ -333,8 +336,8 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
 
     private bool IsEligible(CeSnapshot ce)
     {
-        // Only a registering engagement can be joined by walking in. One already in Warmup or
-        // Battle that we are not part of is closed to us.
+        // Registration is remote. The live enabled Register button, not travel time or map
+        // position, decides whether SignUpRunner can actually submit the request.
         if (ce.State != DynamicEventState.Register)
             return false;
 
@@ -346,15 +349,6 @@ public sealed class TargetSelector(CeCatalog catalog, Configuration config, Regi
 
         var largeScale = _catalog.IsLargeScale(ce.EventId);
         if (largeScale && !_config.EngageLargeScale)
-            return false;
-
-        // The game refuses registration under 10 seconds; remote registration still keeps a
-        // small UI margin, but no travel margin is needed any more.
-        if (ce.SecondsLeft < (uint)_config.MinRegisterSecondsLeft)
-            return false;
-
-        // Without a position we cannot route to it.
-        if (!ce.HasPosition)
             return false;
 
         // Explicitly-enabled Castrum/Dalriada are absolute priority by requirement and bypass

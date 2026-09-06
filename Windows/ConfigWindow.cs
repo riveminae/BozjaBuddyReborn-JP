@@ -238,15 +238,9 @@ public sealed class ConfigWindow : Window
 
         ImGui.Separator();
 
-        var minSeconds = _config.MinRegisterSecondsLeft;
-        ImGui.SetNextItemWidth(200);
-        if (ImGui.SliderInt("参加申請する最低残り時間（秒）", ref minSeconds, 10, 60))
-        {
-            _config.MinRegisterSecondsLeft = minSeconds;
-            Save();
-        }
         ImGui.TextColored(Grey,
-            "残り10秒未満では申請できないため、UI処理分の余裕を確保します。");
+            "受付中の対象CEへ現在地からすぐに参加希望します。\n" +
+            "残り時間や地図座標で申請を見送らず、ゲームの有効な参加希望ボタンを使用します。");
     }
 
     private void DrawSurvival()

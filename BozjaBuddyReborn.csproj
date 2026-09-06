@@ -1596,6 +1596,8 @@
   <ItemGroup>
     <!-- JP fork: public NuGet package so a clean checkout can build without the upstream author's local ECommons checkout. -->
     <PackageReference Include="ECommons" Version="3.2.1.18" />
+    <!-- Host-only test doubles belong to their own executable, never the plugin package. -->
+    <Compile Remove="tests/**/*.cs" />
   </ItemGroup>
 
 

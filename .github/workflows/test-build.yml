@@ -99,6 +99,9 @@ jobs:
       - name: Restore
         run: dotnet restore BozjaBuddyReborn.csproj
 
+      - name: Test remote CE selection behavior
+        run: dotnet run --project tests/CeSelection/CeSelection.Tests.csproj
+
       - name: Build Debug
         shell: pwsh
         run: |

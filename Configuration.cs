@@ -115,9 +115,8 @@ public sealed class Configuration : IPluginConfiguration
     public bool EngageLargeScale;
 
     /// <summary>
-    /// Do not try to register with less than this many seconds left in the registration
-    /// window. The game refuses registration under 10 seconds, so the default leaves margin
-    /// for the travel time to actually land.
+    /// Legacy serialized setting only. Remote registration never reads this value;
+    /// the game's enabled recruitment button determines whether a request can be submitted.
     /// </summary>
     public int MinRegisterSecondsLeft = 15;
 

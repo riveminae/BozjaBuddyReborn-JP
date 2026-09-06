@@ -60,7 +60,7 @@
 | P3-01 | WAITING_LIVE_TEST | enemy rank raw diagnostics | raw `NamePlateIconId` / `CharacterData.Icon`取得・診断基盤済み |
 | P3-02 | BLOCKED | direct raw rank mapping | raw pair実データが得られるまで固定mappingしない |
 | P3-03 | DONE | danger rank integration/overlay | IV/V/★/unknown回避 + ★追加clearance + debug world overlay |
-| P4-01 | PARTIAL | remote CE signup/commence state | 遠隔処理の基礎あり。ただし残時間の任意閾値・位置未取得による申請除外が残る（audit GAP-05/06）。修正後に実機確認が必要 |
+| P4-01 | PARTIAL | remote CE signup/commence state | 任意の残時間閾値・位置未取得による申請除外を修正。実C#選択テスト144件合格。SignUpRunnerの優先CEとUIボタンの対応は未確定（ボタン順依存）で、実機一連試験も必要 |
 | P4-02 | DONE | ActivityPlanner | route-cost、80% cutoff、大規模戦闘最優先、Relic filter実装済み |
 | P4-03 | DONE | RelicFarmPlanner continuation | current-territory auto-continue実装・build済み |
 | P4-04 | DONE | farm target staging | farm対象不在時のAethernet staging実装済み |
@@ -102,6 +102,15 @@
 | P15-04 | BLOCKED | RC review/user approval | main merge前の最終工程。自動merge禁止 |
 
 ## CI evidence
+
+### 要件差異修正: 遠隔CEの選択条件（2026-09-06）
+
+- 要件4.2/4.3/10.3/18、P4-01、GAP-05/06。Register状態のCEを旧最低残時間設定・地図座標の有無で除外しない。実際のクリック可否は従来の有効ボタン取得と安全なSignUpRunnerへ任せる。
+- Relic対象と現在地のterritoryが異なるのに、地域番号だけ一致した通常CEを選ぶ漏れも修正。大規模戦闘の明示ON時の最優先例外は維持した。
+- `dotnet run --project tests/CeSelection/CeSelection.Tests.csproj`: 修正前exit 1（31/144）、修正後exit 0（144/144）。本番TargetSelector・RegionResolver・Configuration・CeSnapshot・Relic定義をリンクし、ホストサービスだけをstub化している。
+- 静的契約・日本語UI監査・packet全適用2回・Debug/Release・diff検査はすべてexit 0。既存検査は維持し、同C#テストをCIへ追加した。ローカルbuildのNU1900警告は未解消。
+- SignUpRunner・登録の単一実行guard・既存戦闘の本体はbaselineと同一。凍結条件と検証範囲は[CE eligibility acceptance](v1.1-ce-eligibility-acceptance-20260906.md)に記録した。
+- **P4-01はまだ完了ではない。** 優先CEのIDは渡されるが、SignUpRunnerは異なる先頭候補を検出してもボタン順でクリックする。正しいCEとUI操作の対応の確定、および両フィールドの実機受入が残る。
 
 ### 要件差異修正: 移動中の反撃禁止（2026-09-06）
 
@@ -180,7 +189,7 @@ Current user commits after that validation are intentionally pushed frequently; 
 
 ユーザー確認/実機確認を要求せず、以下を順次進める。
 
-1. P4-01 / audit GAP-05/06: 任意の残時間閾値と位置未取得で遠隔CE申請を妨げる条件を修正
+1. P4-01: 選択した優先CEのIDと申請UIの行/ボタンの対応を公開ソースまたは実観測で確定し、ボタン順依存を解消
 2. P11-01 / audit GAP-01/03/04: 要件の6カテゴリ、必須依存表示、生存候補の持込/自動使用の独立UIを実装
 3. P5-01: 安全なCache転送根拠の確定。公開ClientStructsは2026-09-06にもread構造のみで、転送関数は未定義
 4. Initialize / rollback / 差分補充と未達の実機受入を完了し、main側の配布修正を保持して競合解消・RC検証・mergeへ進む

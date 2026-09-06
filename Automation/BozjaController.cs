@@ -1389,9 +1389,8 @@ public sealed class BozjaController
     /// <summary>
     /// Is the objective we already committed to still worth finishing?
     ///
-    /// A skirmish counts while it is still running and incomplete. An engagement counts only
-    /// while registration is still open with enough margin to arrive - once it starts without
-    /// us, continuing to run at it is wasted travel.
+    /// A skirmish counts while it is still running and incomplete. Legacy CE objectives count
+    /// only while registration is open; normal CE signup is remote and has no travel margin.
     /// </summary>
     private bool IsObjectiveStillWorthDoing(SharedObjective objective)
     {
@@ -1406,8 +1405,7 @@ public sealed class BozjaController
             if (ce.EventId != objective.Id)
                 continue;
 
-            return ce.State == DynamicEventState.Register
-                   && ce.SecondsLeft >= (uint)_config.MinRegisterSecondsLeft;
+            return ce.IsJoinable;
         }
 
         return false;

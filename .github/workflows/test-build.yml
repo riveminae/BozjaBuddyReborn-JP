@@ -102,6 +102,9 @@ jobs:
       - name: Test remote CE selection behavior
         run: dotnet run --project tests/CeSelection/CeSelection.Tests.csproj
 
+      - name: Test Japanese live-review recording
+        run: dotnet run --project tests/LiveReview/LiveReview.Tests.csproj
+
       - name: Build Debug
         shell: pwsh
         run: |

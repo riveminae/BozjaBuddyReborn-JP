@@ -63,6 +63,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly DutyActionSync _dutySync;
 
     private readonly MainWindow _mainWindow;
+    private readonly LiveReviewRecorder _liveReview = new(typeof(Plugin).Assembly.GetName().Version ?? new Version(0, 0, 0, 0));
     private readonly ConfigWindow _configWindow;
     private readonly RelicWindow _relicWindow;
     private readonly DutyActionWindow _dutyWindow;
@@ -111,7 +112,7 @@ public sealed class Plugin : IDalamudPlugin
             _errands, _loadoutDriver, _signUps, _partySupport, _deathRecovery, _dependencies);
         _socialRequests = new SocialRequestGuard(_config, () => _controller.Running);
 
-        _mainWindow = new MainWindow(_config, _controller, _director, _navmesh, _link, _catalog) { IsOpen = false };
+        _mainWindow = new MainWindow(_config, _controller, _director, _navmesh, _link, _catalog, _liveReview) { IsOpen = false };
         _configWindow = new ConfigWindow(_config, _lostActions, _regions, _aggroAvoidance, _supplies)
         {
             IsOpen = false,
@@ -399,6 +400,32 @@ public sealed class Plugin : IDalamudPlugin
             DiagnosticsRecorder.Warning("内部エラーのためコントローラーを停止しました。");
             DiagnosticsRecorder.Observe(_controller.State, _controller.Status);
         }
+        // Read-only, opt-in evidence capture. Runs on the framework thread even with all windows closed.
+        // The recorder contains sampling failures; diagnostic failures must not stop gameplay.
+        _liveReview.Capture(DateTimeOffset.Now, Environment.TickCount64, ReadReviewSample);
+    }
+
+    private ReviewSample ReadReviewSample()
+    {
+        var me = Svc.Objects.LocalPlayer;
+        var supply = _controller.SupplyStatus;
+        var objective = _controller.CurrentObjective;
+        var events = new List<ReviewEngagement>();
+        foreach (var ce in _controller.Engagements)
+            if (ce.IsLive)
+                events.Add(new ReviewEngagement(ce.EventId, (int)ce.State, ce.Progress, ce.SecondsLeft));
+        var inField = FieldState.InFieldZone;
+        return new ReviewSample(
+            Svc.ClientState.TerritoryType, _controller.Running, (int)_controller.State,
+            (int)_controller.TravelMode, (int)SurvivalPolicy.CurrentRole(),
+            me != null && me.MaxHp > 0 ? (int)(me.CurrentHp * 100UL / me.MaxHp) : null,
+            Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Mounted],
+            (int)objective.Kind, objective.Id, inField && CriticalEngagements.Available,
+            inField ? CriticalEngagements.RegisteredEventId ?? 0 : (ushort)0,
+            supply.InventoryAvailable && inField, supply.PotionKits, supply.Reraisers,
+            supply.MainHealUnits, supply.EmergencyDefenseUnits, _navmesh.Available,
+            _director.RotationAvailable, _director.AvoidanceAvailable,
+            _controller.LifestreamAvailable, _textAdvance.Available, events);
     }
 
     /// <summary>

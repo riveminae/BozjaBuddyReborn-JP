@@ -29,6 +29,11 @@ public sealed class MainWindow : Window
     private readonly CombatDirector _director;
     private readonly NavmeshIpc _navmesh;
     private readonly MultiboxLink _link;
+    private readonly LiveReviewRecorder _liveReview;
+    private int _reviewTest = 1;
+    private int _reviewVariant = 1;
+    private ReviewOutcome _reviewOutcome;
+    private string _reviewCopyStatus = string.Empty;
     private readonly CeCatalog _catalog;
     private static readonly Version AssemblyVersion = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0);
     private static bool IsTestBuild => AssemblyVersion.Major == 1 && AssemblyVersion.Minor == 0 && AssemblyVersion.Build == 90;
@@ -39,7 +44,8 @@ public sealed class MainWindow : Window
         CombatDirector director,
         NavmeshIpc navmesh,
         MultiboxLink link,
-        CeCatalog catalog)
+        CeCatalog catalog,
+        LiveReviewRecorder liveReview)
         : base("Bozja Buddy Reborn###BozjaBuddyRebornMain")
     {
         _config = config;
@@ -48,6 +54,7 @@ public sealed class MainWindow : Window
         _navmesh = navmesh;
         _link = link;
         _catalog = catalog;
+        _liveReview = liveReview;
 
         SizeConstraints = new WindowSizeConstraints
         {
@@ -157,8 +164,73 @@ public sealed class MainWindow : Window
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("現在の状態・依存関係・経路・CE状態を個人情報なしでコピーします。");
 
+        DrawLiveReview();
+
         DrawPartySupport();
         DrawZonePicker();
+    }
+
+    private void DrawLiveReview()
+    {
+        if (!ImGui.CollapsingHeader("実機試験の記録")) return;
+        ImGui.TextWrapped("約1秒ごとの状態を最大512件保存します。合否は試験票で判断してください。画面を閉じても記録は続きます。");
+        ImGui.TextWrapped("記録終了後に判定を選び、結果をコピーしてください。次の記録や版の再読み込みの前に貼り付けて保存してください。");
+        ImGui.BeginDisabled(!_liveReview.CanStart);
+        ImGui.SetNextItemWidth(120);
+        ImGui.InputInt("試験番号", ref _reviewTest);
+        ImGui.SetNextItemWidth(120);
+        ImGui.InputInt("条件番号", ref _reviewVariant);
+        _reviewTest = Math.Clamp(_reviewTest, 1, 9999);
+        _reviewVariant = Math.Clamp(_reviewVariant, 1, 9999);
+        if (ImGui.Button("試験記録を開始") && _liveReview.Start(_reviewTest, _reviewVariant, DateTimeOffset.Now))
+        {
+            _reviewOutcome = ReviewOutcome.Undecided;
+            _reviewCopyStatus = string.Empty;
+        }
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.BeginDisabled(!_liveReview.IsRecording);
+        if (ImGui.Button("試験記録を終了"))
+        {
+            _liveReview.End(DateTimeOffset.Now);
+            _reviewCopyStatus = string.Empty;
+        }
+        ImGui.EndDisabled();
+        ImGui.TextUnformatted(_liveReview.IsRecording ? "試験記録中（自動周回の開始・停止とは別です）" : "試験記録停止中");
+
+        ImGui.BeginDisabled(!_liveReview.HasSession || _liveReview.IsRecording);
+        if (ImGui.BeginCombo("判定", LiveReviewRecorder.OutcomeName(_reviewOutcome)))
+        {
+            foreach (var outcome in Enum.GetValues<ReviewOutcome>())
+            {
+                if (ImGui.Selectable(LiveReviewRecorder.OutcomeName(outcome), _reviewOutcome == outcome))
+                {
+                    _reviewOutcome = outcome;
+                    _liveReview.MarkOutcomeChanged();
+                    _reviewCopyStatus = string.Empty;
+                }
+            }
+            ImGui.EndCombo();
+        }
+        ImGui.EndDisabled();
+        ImGui.BeginDisabled(!_liveReview.HasSession);
+        if (ImGui.Button("試験結果をコピー"))
+        {
+            try
+            {
+                ImGui.SetClipboardText(_liveReview.BuildReport(_reviewOutcome));
+                _liveReview.MarkCopied();
+                _reviewCopyStatus = "コピーしました。共有前に貼り付けて内容を確認してください。";
+            }
+            catch (Exception)
+            {
+                _reviewCopyStatus = "コピーできませんでした。記録は残っています。もう一度お試しください。";
+            }
+        }
+        ImGui.EndDisabled();
+        if (!_liveReview.IsRecording && _liveReview.HasSession && !_liveReview.CanStart)
+            ImGui.TextWrapped("まだ結果をコピーしていません。先にコピーしてください。");
+        if (_reviewCopyStatus.Length > 0) ImGui.TextWrapped(_reviewCopyStatus);
     }
 
     /// <summary>

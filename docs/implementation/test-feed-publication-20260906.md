@@ -28,3 +28,27 @@ Read-only root-kind check using `System.Text.Json.JsonDocument.Parse` rejected t
 existing file with exit 1 (`Object`). Change serialization to
 `ConvertTo-Json -InputObject @($entry)` and add a raw JSON root/count check before
 the existing version/URL checks. No existing gate is removed.
+
+The array requirement is confirmed by the
+[official Dalamud custom repository guide](https://dalamud.dev/plugin-publishing/custom-repositories/).
+The fixed tracked feed and the exact one-entry serialization expression both
+passed the same `System.Text.Json` root/count check with exit 0.
+
+## Validated release input
+
+- Source: `dea238af366f01a533d3ade2c008dc0061c5f1fb`.
+- [CI run 34021233543](https://github.com/riveminae/BozjaBuddyReborn-JP/actions/runs/34021233543),
+  run number 169: all checks succeeded, including the raw array/count guard,
+  94 recorder checks, 144 CE cases, static/UI audits, packet replay/idempotency,
+  Debug/Release and package version checks.
+- Artifact: `BozjaBuddyReborn-JP-v1.1-test-1.0.90.169`; downloaded without rebuilding.
+- `dist-test/BozjaBuddyReborn-1.0.90.169.zip` SHA-256:
+  `e449b65b879bba899fdbad3971f7d13bed4ab4f1353cc308e82fddd600781380`.
+- Local artifact inspection: raw array/count, InternalName, both version fields,
+  API level, packaged manifest version, and absence of test executables passed.
+- Release feed changes only version/immutable URLs and a Japanese changelog from
+  the validated artifact metadata. No stable feed or main change.
+
+Publish the tag and feature-branch feed atomically, then validate the public raw
+feed and archive hash. A successful public download does not replace the human
+Dalamud update/reload/clipboard tests in the Japanese trial sheet.

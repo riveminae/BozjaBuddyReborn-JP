@@ -3,8 +3,8 @@
   "Author": "Bozja Buddy Reborn contributors / JP fork by riveminae",
   "Name": "Bozja Buddy Reborn JP TEST",
   "InternalName": "BozjaBuddyReborn",
-  "AssemblyVersion": "1.0.90.162",
-  "TestingAssemblyVersion": "1.0.90.162",
+  "AssemblyVersion": "1.0.90.169",
+  "TestingAssemblyVersion": "1.0.90.169",
   "Description": "v1.1 開発テスト版。BOCCHI方式ナビゲーション、生存制御、補給・復旧機能を段階的に検証します。Stable版repoと同時に有効化しないでください。",
   "Punchline": "Bozja Buddy Reborn JP v1.1 実機テスト版",
   "ApplicableVersion": "any",
@@ -21,12 +21,12 @@
   ],
   "RepoUrl": "https://github.com/riveminae/BozjaBuddyReborn-JP",
   "IconUrl": "",
-  "Changelog": "1.0.90.162 - immutable test release. See docs/implementation/BozjaBuddyReborn-JP_v1.1.0_progress.md.",
+  "Changelog": "1.0.90.169：日本語の実機試験記録と結果コピーを追加。遠隔参加申請の選択条件と移動中の逃走を改善。初期整備と補給など一部機能は開発中です。",
   "IsHide": false,
   "IsTestingExclusive": false,
   "AcceptsFeedback": true,
-  "DownloadLinkInstall": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/test-1.0.90.162/dist-test/BozjaBuddyReborn-1.0.90.162.zip",
-  "DownloadLinkUpdate": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/test-1.0.90.162/dist-test/BozjaBuddyReborn-1.0.90.162.zip",
-  "DownloadLinkTesting": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/test-1.0.90.162/dist-test/BozjaBuddyReborn-1.0.90.162.zip"
+  "DownloadLinkInstall": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/test-1.0.90.169/dist-test/BozjaBuddyReborn-1.0.90.169.zip",
+  "DownloadLinkUpdate": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/test-1.0.90.169/dist-test/BozjaBuddyReborn-1.0.90.169.zip",
+  "DownloadLinkTesting": "https://raw.githubusercontent.com/riveminae/BozjaBuddyReborn-JP/test-1.0.90.169/dist-test/BozjaBuddyReborn-1.0.90.169.zip"
 }
 ]

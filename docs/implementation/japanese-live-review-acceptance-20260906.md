@@ -153,3 +153,12 @@ python -B -c "from pathlib import Path; import re,unicodedata as u; s=Path('docs
 - This is a sampled summary, not a full action log. Inventory/objective/event
   caches may be stale while stopped/waiting; exported text and the trial sheet
   explicitly require comparison with actual game UI. No server write is inferred.
+
+### CI evidence
+
+Commit `295d941` passed every step of
+[run 34021021656](https://github.com/riveminae/BozjaBuddyReborn-JP/actions/runs/34021021656)
+(candidate 1.0.90.168). The subsequent feed-format correction `dea238a` passed
+[run 34021233543](https://github.com/riveminae/BozjaBuddyReborn-JP/actions/runs/34021233543)
+(candidate 1.0.90.169), including both executable test suites and all previous CI
+checks. Publication evidence is separate in `test-feed-publication-20260906.md`.

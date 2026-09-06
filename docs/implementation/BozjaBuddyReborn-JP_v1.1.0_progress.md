@@ -94,7 +94,7 @@
 | P12-02 | DONE | character state split | Relic farm targetを`PlayerState.ContentId`単位で保存 |
 | P12-03 | DONE | migration failure backup | raw config backup + notification + safe defaults fallback |
 | P13-01 | DONE | weekly BOCCHI monitor | `.github/workflows/check-bocchi-upstream.yml` |
-| P14-01 | DONE | Test repository publish | 自動採番ZIP/manifestをCIでpublish |
+| P14-01 | DONE | Test repository publish | CIで自動採番したZIP/manifestを検証し、固定tagとfeedで配布。CIは候補artifact生成のみでfeedを自動更新しない |
 | P14-02 | DONE | stable fallback案内 | test build UIへStable復帰手順 |
 | P15-01 | WAITING_LIVE_TEST | 南方受入 | 最終受入まで延期。通常開発を止めない |
 | P15-02 | WAITING_LIVE_TEST | ザトゥノル受入 | 同上 |
@@ -111,6 +111,7 @@
 - 本番recorderをリンクした`dotnet run --project tests/LiveReview/LiveReview.Tests.csproj`は94検査、exit 0。判定誤確定・未コピー上書き・無制限蓄積の3つの独立不具合は同じ検査がexit 1で拒否した。既存CIに同検査を追加し、以前の工程を削除していない。
 - 初回の不具合入力検査でテスト実行器が例外を未捕捉にし、Windowsのエラーダイアログと実行ファイルロックを発生させた。該当テストプロセスだけを終了し、外側の例外境界でexit 1を返すよう修正した。元の検査本文・入力のSHA-256が一致することを確認し、再試行では3件ともダイアログなしのexit 1、その後正常入力は94件成功。製品のゲーム処理のクラッシュではない。
 - 結果コピーの実機UI・実際のクリップボード貼り付け・第三者の日本語読解確認は未実施。試験票作成やmanagedテスト成功をP15実機受入のDONEへ読み替えない。条件・コマンドと限界は[追加依頼の受入記録](japanese-live-review-acceptance-20260906.md)に記載。
+- `295d941`の[CI run 34021021656](https://github.com/riveminae/BozjaBuddyReborn-JP/actions/runs/34021021656)は全工程success。その後、PowerShellの単一要素配列がobjectへ展開される配布一覧の不備を修正し、`dea238a`の[CI run 34021233543](https://github.com/riveminae/BozjaBuddyReborn-JP/actions/runs/34021233543)も全工程success。配布候補`1.0.90.169`の出所とハッシュは[配布受入記録](test-feed-publication-20260906.md)を参照。
 
 ### 要件差異修正: 遠隔CEの選択条件（2026-09-06）
 

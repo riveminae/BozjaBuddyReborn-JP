@@ -119,6 +119,7 @@ public sealed class Plugin : IDalamudPlugin
             OnIdleSpotsChanged = () => _controller.InvalidateIdleSpots(),
         };
         _relicWindow = new RelicWindow(_relicTracker, _config) { IsOpen = false };
+        _configWindow.DrawRelicContents = _relicWindow.Draw;
 
         _dutySync = new DutyActionSync(_config, _link);
         _dutyWindow = new DutyActionWindow(_config, _dutySync, _link) { IsOpen = false };

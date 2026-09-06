@@ -111,6 +111,12 @@ jobs:
       - name: Test independent Lost Action permissions across consumers
         run: dotnet run --project tests/SurvivalPermissions/SurvivalPermissions.Tests.csproj
 
+      - name: Test settings with native headless ImGui input
+        run: dotnet run --project tests/SettingsUi/SettingsUi.Tests.csproj
+
+      - name: Test stable-edition settings visibility
+        run: dotnet run --project tests/SettingsUi/SettingsUi.Tests.csproj -p:Version=1.1.0.0
+
       - name: Build read-only recruitment layout probe
         run: dotnet build tests/UiLayoutProbe/UiLayoutProbe.csproj --nologo
 

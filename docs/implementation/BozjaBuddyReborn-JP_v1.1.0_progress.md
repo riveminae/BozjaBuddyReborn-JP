@@ -3,8 +3,8 @@
 - 最終更新: 2026-09-06
 - branch: `feat/bocchi-navigation`
 - 初期main baseline: `038faf8d70b2aea7189143f7fd46a8c135cb0484`
-- 最新CI検証commit: `2a796e7ffb6ef0871a0b11e2a11d2272064de778`
-- 最新CI検証Test候補version: `1.0.90.165`（artifactのみ。公開feedは`1.0.90.162`）
+- 最新CI検証commit: `1152e453d9d7d22edcfb69595dfcd3cc0ba80843`
+- 最新CI検証Test候補version: `1.0.90.173`（artifactのみ。公開feedは`1.0.90.169`）
 - Test version生成: GitHub Actions run numberから `1.0.90.x` を自動採番
 
 ## ステータス定義
@@ -21,7 +21,7 @@
 ## 現在地点の重要事項
 
 - Debug / Release build、packet冪等性検証、static contract、日本語UI audit、test ZIP、manifest version検証まで最新CI成功済み。現在のworkflowはartifactのみ生成し、公開feedを自動で上書きしない。
-- Test候補はGitHub Actions run numberから毎回異なる `1.0.90.x` を生成する。配信には検証済みZIPのタグ固定とfeed更新が別途必要で、現時点の公開版は `1.0.90.162`。
+- Test候補はGitHub Actions run numberから毎回異なる `1.0.90.x` を生成する。配信には検証済みZIPのタグ固定とfeed更新が別途必要で、現時点の公開版は `1.0.90.169`。
 - `tools/packets/run_all.py` はWindows runnerでもUTF-8固定で実行し、CIではpacketを2回連続適用して2回目のGit treeが完全不変であることを検査する。1回目だけ成功するbrittle packetをcompile前に検出できる。
 - `tools/validate_v110_contract.py` をCIへ組み込み、CE安全クリック、mounted invariant、補給優先順位、依存復旧、敵ランク安全側判定、BOCCHI経路計測の安全性、AGPL/provenance等の設計不変条件をcompile前に検査する。
 - BOCCHI-style Direct / Aethernet / Return 経路は実装済み。出発AethernetはBOCCHIと同じ `base camp → 45y graph snap → nearest node` で1ノードに解決する。
@@ -42,7 +42,7 @@
 - **最大の残blockerはCache↔Holsterの正規サーバー転送手段**。公開ClientStructs/公開Dalamud実装から確定できず、推測callbackや直接memory writeは行わない。
 - `DiagnosticsRecorder` は直近state/status 32件 / warning 16件をprivacy-safeに保持し、診断コピーへ含める。
 - config migration失敗時は元configをtimestamp付きJSONへbackupし、安全なdefaultへfallbackする。
-- UIは日本語固定。設定画面はカテゴリ整理済みで、ロストアクション配下も `Duty Actionバー / 自動使用 / パーティ支援` を独立subtab化した。自動使用OFFでもパーティ支援設定は消えない。
+- UIの日本語固定は要件だが、素材名・ロール名など動的表示に未達が残る。設定画面は要件の六分類へ再編し、生存候補の持込/自動使用を独立設定可能にした。全候補の検索は詳細設定へ置き、自動使用OFFでも生存・パーティ支援設定は消えない。隔離描画検査済み、実機表示は未確認。
 - 直接表示される英語ImGui literalは `tools/audit_visible_japanese.py` のstrict CI gateで新規混入を防止する。Runtime内部の英語メッセージはログ/診断用に保持し、UI表示時だけ日本語化する。
 - AGPL本体、元BBR MIT、BOCCHI、KanoNoUta BOCCHI maintenance fork、Ocelot MIT、ECommons MITのprovenance/noticeを整理済み。
 
@@ -72,7 +72,7 @@
 | P6-02 | BLOCKED | differential refill | transfer effect待ち |
 | P6-03 | DONE | Supply vs CE arbitration | critical即中断 / routine現スカーミッシュ完走 / CE登録継続 / critical時のみCommence保留 / Cache自動移動・openまでCI済み |
 | P7-01 | DONE | Reraiser risk-window | emergencyへのedgeで1回のみ候補化 |
-| P7-02 | BLOCKED | Essence Initialize integration | priority/bring/autouse/overwrite policyあり。transfer effect待ち |
+| P7-02 | BLOCKED | Essence Initialize integration | priority/bring/autouseあり。overwriteの設定と実方針は未実装で、転送だけが残件ではない。安全なtransfer effectもP5-01待ち |
 | P7-03 | WAITING_LIVE_TEST | mounted invariant | mounted中survival Lost Actionを発火しない。2026-09-06に移動中FightBack分岐・設定UIを除去し、旧設定を逃走固定へ補正。静的/Debug/Release検証済み、両フィールド実機確認は未実施 |
 | P8-01 | DONE | TextAdvance wrapper | `External/TextAdvanceIpc.cs` 実装済み |
 | P8-02 | DONE | DeathRecovery state machine | CE待機、skirmish 30s、travel 10s、Return+TextAdvance委譲 |
@@ -84,12 +84,12 @@
 | P10-01 | DONE | social request識別 | Party agent強識別 + prompt subject/request二重判定 |
 | P10-02 | DONE | strict social reject | Running中のみ識別済みsocial requestをNo。generic YesNoは触らない |
 | P10-03 | WAITING_LIVE_TEST | false positive確認 | 最終ゲーム表示差分のみ未確認 |
-| P11-01 | PARTIAL | UI tab再編 | Lost Action独立subtabあり。要件14.2の周回/生存/ロストアクション/移動/Relic/詳細設定への再編は未実装（audit GAP-01） |
-| P11-02 | DONE | main status | route/CE/dependency/survival supply/blacklist表示を拡張済み |
+| P11-01 | WAITING_LIVE_TEST | UI tab再編 | 六分類、生存候補の独立許可、全候補検索、既存Relic画面再利用を実装。実描画ライブラリの隔離操作検査はテスト版51件/安定版46件成功、独立レビュー指摘なし。実フォント・倍率・ゲーム内表示は未確認 |
+| P11-02 | PARTIAL | main status | route/CE/dependency/supply表示あり。HP/role/routeがRunning時のみ、role/stockに英語、簡易Essence表示も不足。常時表示の要件を満たしていない |
 | P11-03 | DONE | DiagnosticsRecorder | state/status 32件 + warning 16件 ring buffer |
 | P11-04 | DONE | clipboard diagnostics | 個人情報を除外した診断コピー実装済み |
 | P11-05 | DONE | debug world overlay | goal/Aethernet route/danger cone+ring描画、default OFF |
-| P11-06 | DONE | visible English全日本語化 | 主要画面/runtime/multibox/duty/relic/settingsを日本語化し、direct ImGui literalのstrict CI auditを追加 |
+| P11-06 | PARTIAL | visible English全日本語化 | direct ImGui literal監査とLost Action日本語名取得あり。ただしRelic素材のクライアント言語依存、メイン画面のrole/stock、既存混在表記が残る。既存監査の成功だけで全表示の完了としない |
 | P12-01 | DONE | config migration | schema v4 migration + threshold/nav normalization |
 | P12-02 | DONE | character state split | Relic farm targetを`PlayerState.ContentId`単位で保存 |
 | P12-03 | DONE | migration failure backup | raw config backup + notification + safe defaults fallback |
@@ -103,13 +103,22 @@
 
 ## CI evidence
 
+### 要件差異修正: 六分類の設定画面と独立許可（2026-09-06）
+
+- 要件8.2、14.1/14.2、詳細設計12.2、P11-01。周回/生存/ロストアクション/移動/レジスタンスウェポン/詳細設定へ再編した。通常は本番の生存候補、詳細は日本語名による全候補検索。既存の独立した許可辞書へ保存し、通常使用の候補リストとは混同しない。
+- 既存の戦闘・補給・通常使用・支援を残し、レジスタンスウェポンの描画を単独/設定画面で共有した。停止条件・継続、デジョン経路・費用は既存設定へ接続。ゲーム操作や初期素材の自動選択は加えていない。安全な転送・秘薬上書きが未実装であることは画面でも明示する。
+- 本番画面/カタログ/方針をリンクした隔離描画操作はテスト版51件、安定版46件成功。タブ欠落・許可の混同・希少品の既定許可・検索無視の4不具合を同じ固定入力で全てexit 1にし、復元後exit 0。既存508件を含む合計605件成功。ゲームプロセス・入力は使用していない。
+- 静的契約、日本語監査、Debug/Release、差分検査はexit 0。packet初回のハッシュ変化を拒否して意味的差分を確認後、2回は182入力のハッシュが不変。試験・packet・契約は弱めていない。NU1900警告は残る。正確な条件・コマンド・限界は[設定画面の受入記録](settings-ui-acceptance-20260906.md)。
+- 独立した読み取り専用レビューに未解決の重大/高/中指摘なし。担当者も51件/46件を独立実行してexit 0を確認。実ゲームの日本語フォント・倍率・操作・クリップボード・第三者受入は未確認。P11-02/06とP7-02の既存完了表現も残実装に合わせて訂正した。この変更のリモートCIはまだ未確認。
+
 ### 要件差異修正: 持込と自動使用の独立性（2026-09-06）
 
 - 要件8.1/8.2、9、10、14.2、P7/P6/P11。設定画面の調査で、通常使用とパーティ支援が自動使用許可を無視し、装填後の許可取消も見ていない差異を発見した。既存の辞書を各経路へ接続し、マウント中の支援も止めた。既存戦闘制御と設定スキーマは未変更。
 - ホルダーが空でも装填済みアクションを使う経路を修正した。補給は持込許可、危機判定は自動使用可能な回復手段で評価する。持込不可でも手元の使用可能品は利用でき、使用禁止品を実所持数不足と取り違えて往復しない。欠品記録は維持した。
 - 本番方針・通常/生存/支援・補給判定をリンクした `tests/SurvivalPermissions` は修正前exit 1、修正後103件exit 0。同じ検査入力で6不具合を個別に入れ、全てexit 1で拒否。各試行は外側30秒以内、復元後103件成功。詳細・ハッシュ・改行正規化の扱いは[受入記録](lost-action-permission-acceptance-20260906.md)。
 - 既存405件を含む計508件、静的契約、日本語UI監査、Debug/Release、diff検査はexit 0。packetは初回の改行正規化を検出して内容確認後、2回連続で176入力のハッシュ一致。既存検査・入力・packetは弱めていない。ローカルNU1900警告は残る。
-- 試験票55項目と結果コピーに在庫値の解釈を補足した。試験票のLatin全文検査と7不正入力検査も成功。**実機・独立レビューは未確認。** 六分類と許可設定の画面は未実装のためP11-01はPARTIALを維持し、転送や最終受入を完了扱いにしない。
+- 試験票55項目と結果コピーに在庫値の解釈を補足した。試験票のLatin全文検査と7不正入力検査も成功。**この修正時点では実機・独立レビューは未確認。** 六分類と許可設定は後続の設定画面変更で追加した。転送や最終受入を完了扱いにしない。
+- `1152e45`の[CI run 34024794420](https://github.com/riveminae/BozjaBuddyReborn-JP/actions/runs/34024794420)は全工程success。候補版は`1.0.90.173`、公開feedは引き続き`1.0.90.169`。
 
 ### 要件差異修正: 参加希望先と画面行の対応（2026-09-06）
 
@@ -217,10 +226,11 @@ Current user commits after that validation are intentionally pushed frequently; 
 
 ユーザー確認/実機確認を要求せず、以下を順次進める。
 
-1. P11-01 / audit GAP-01/03/04: 要件の6カテゴリ、必須依存表示、生存候補の持込/自動使用の独立UIを実装
-2. P4-01: 行/ボタンの対応実装は機械検証済み。両フィールドの実登録ID/当選後の転送を最終実機受入で確認
-3. P5-01: 安全なCache転送根拠の確定。公開ClientStructsは2026-09-06にもread構造のみで、転送関数は未定義
-4. Initialize / rollback / 差分補充と未達の実機受入を完了し、main側の配布修正を保持して競合解消・RC検証・mergeへ進む
+1. P11-02/06: メイン表示の常時要約、秘薬状態、動的表示名の日本語固定を要件と照合して修正
+2. P7-02: 秘薬上書きの既定不許可と実方針を実装し、未成立の転送と区別
+3. P4-01/P11-01: 機械検証済み範囲を両フィールド・実フォント/倍率で最終実機確認
+4. P5-01: 安全なCache転送根拠の確定。公開ClientStructsは2026-09-06にもread構造のみで、転送関数は未定義
+5. Initialize / rollback / 差分補充と未達の実機受入を完了し、main側の配布修正を保持して競合解消・RC検証・mergeへ進む
 
 ## 実機検証方針
 

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using BozjaBuddyReborn.Automation;
 using BozjaBuddyReborn.Game;
@@ -21,6 +23,11 @@ public sealed class ConfigWindow : Window
     private readonly RegionResolver _regions;
     private readonly AggroAvoidance _avoidance;
     private readonly SupplyManager _supplies;
+    private readonly SurvivalPolicy _survival;
+    private string _permissionSearch = string.Empty;
+
+    // The existing standalone window supplies the same renderer; no second relic model.
+    public Action? DrawRelicContents { get; set; }
 
     public ConfigWindow(
         Configuration config,
@@ -35,6 +42,7 @@ public sealed class ConfigWindow : Window
         _regions = regions;
         _avoidance = avoidance;
         _supplies = supplies;
+        _survival = new SurvivalPolicy(config, lostActions);
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new Vector2(520, 420),
@@ -49,15 +57,11 @@ public sealed class ConfigWindow : Window
         if (!ImGui.BeginTabBar("##bbr_cfg"))
             return;
 
-        if (ImGui.BeginTabItem(Loc.T("Combat", "戦闘")))
-        {
-            DrawCombat();
-            ImGui.EndTabItem();
-        }
-
-        if (ImGui.BeginTabItem(Loc.T("Engagements", "CE / スカーミッシュ")))
+        if (ImGui.BeginTabItem("周回"))
         {
             DrawEngagements();
+            if (ImGui.CollapsingHeader("戦闘の連携設定"))
+                DrawCombat();
             ImGui.EndTabItem();
         }
 
@@ -67,21 +71,38 @@ public sealed class ConfigWindow : Window
             ImGui.EndTabItem();
         }
 
-        if (ImGui.BeginTabItem(Loc.T("Movement", "移動")))
+        if (ImGui.BeginTabItem("ロストアクション"))
+        {
+            DrawLostActions();
+            ImGui.EndTabItem();
+        }
+
+        if (ImGui.BeginTabItem("移動"))
         {
             DrawMovement();
             ImGui.EndTabItem();
         }
 
-        if (ImGui.BeginTabItem(Loc.T("Zones", "エリア")))
+        if (ImGui.BeginTabItem("レジスタンスウェポン"))
         {
-            DrawZones();
+            if (DrawRelicContents is { } draw)
+                draw();
+            else
+                ImGui.TextColored(Yellow, "レジスタンスウェポンの表示を準備しています。");
             ImGui.EndTabItem();
         }
 
-        if (ImGui.BeginTabItem(Loc.T("Lost Actions", "ロストアクション")))
+        if (ImGui.BeginTabItem("詳細設定"))
         {
-            DrawLostActions();
+            DrawPermissions(all: true);
+            if (ImGui.CollapsingHeader("通常使用の優先候補"))
+                DrawLostActionPriorityList();
+            if (ImGui.CollapsingHeader("経路の詳細設定"))
+                DrawNavigationCosts();
+            if (ImGui.CollapsingHeader("移動方式と表示の切り替え"))
+                DrawNavigationModes();
+            if (ImGui.CollapsingHeader("エリアと診断"))
+                DrawZones();
             ImGui.EndTabItem();
         }
 
@@ -334,13 +355,6 @@ public sealed class ConfigWindow : Window
             "BOCCHI方式で徒歩/マウント直行と簡易テレポ経路を比較し、速い方を選択します。");
         ImGui.Separator();
 
-        var bocchi = _config.UseBocchiNavigation;
-        if (ImGui.Checkbox("BOCCHI方式の移動経路を使用する", ref bocchi))
-        {
-            _config.UseBocchiNavigation = bocchi;
-            Save();
-        }
-
         var aethernet = _config.UseAethernetTravel;
         if (ImGui.Checkbox("フィールド内の簡易テレポを使用する（Lifestream）", ref aethernet))
         {
@@ -348,10 +362,10 @@ public sealed class ConfigWindow : Window
             Save();
         }
 
-        var legacy = _config.LegacyMovement;
-        if (ImGui.Checkbox("非常用: 従来の直接移動を使用する", ref legacy))
+        var returnRouting = _config.UseReturnRouting;
+        if (ImGui.Checkbox("デジョンを使う経路を許可する", ref returnRouting))
         {
-            _config.LegacyMovement = legacy;
+            _config.UseReturnRouting = returnRouting;
             Save();
         }
 
@@ -365,22 +379,6 @@ public sealed class ConfigWindow : Window
             ImGui.SetTooltip("30yを超える長距離ではマウントルーレットを使用し、到着時に戦闘可能な状態へ降ります。");
 
         ImGui.TextColored(Grey, "この2エリアではマウント飛行は使用しません。常に地上経路です。");
-
-        var direct = _config.NavigationMaxDirectWalkDistance;
-        ImGui.SetNextItemWidth(200);
-        if (ImGui.SliderFloat("直接移動を優先する距離 (y)", ref direct, 20f, 200f, "%.0f"))
-        {
-            _config.NavigationMaxDirectWalkDistance = direct;
-            Save();
-        }
-
-        var hop = _config.NavigationAethernetHopCost;
-        ImGui.SetNextItemWidth(200);
-        if (ImGui.SliderFloat("簡易テレポの時間換算コスト", ref hop, 10f, 150f, "%.0f"))
-        {
-            _config.NavigationAethernetHopCost = hop;
-            Save();
-        }
 
         var arrive = _config.ArriveRange;
         ImGui.SetNextItemWidth(200);
@@ -402,6 +400,59 @@ public sealed class ConfigWindow : Window
             "現在経路を破棄して目的地をnavmeshへ再スナップし、\n" +
             "新しい経路を作成します。");
 
+        ImGui.Separator();
+        DrawAggroAvoidance();
+
+        ImGui.Separator();
+        DrawIdleSpots();
+    }
+
+    private void DrawNavigationCosts()
+    {
+        var direct = _config.NavigationMaxDirectWalkDistance;
+        ImGui.SetNextItemWidth(200);
+        if (ImGui.SliderFloat("直接移動を優先する距離 (y)", ref direct, 20f, 200f, "%.0f"))
+        {
+            _config.NavigationMaxDirectWalkDistance = direct;
+            Save();
+        }
+
+        var hop = _config.NavigationAethernetHopCost;
+        ImGui.SetNextItemWidth(200);
+        if (ImGui.SliderFloat("簡易テレポの時間換算コスト", ref hop, 10f, 150f, "%.0f"))
+        {
+            _config.NavigationAethernetHopCost = hop;
+            Save();
+        }
+
+        var returnCost = _config.NavigationReturnCost;
+        ImGui.SetNextItemWidth(200);
+        if (ImGui.SliderFloat("デジョンの時間換算コスト", ref returnCost, 10f, 150f, "%.0f"))
+        {
+            _config.NavigationReturnCost = returnCost;
+            Save();
+        }
+    }
+
+    private void DrawNavigationModes()
+    {
+        var legacy = _config.LegacyMovement;
+        if (ImGui.Checkbox("非常用: 従来の直接移動を使用する", ref legacy))
+        {
+            _config.LegacyMovement = legacy;
+            Save();
+        }
+
+        if (typeof(ConfigWindow).Assembly.GetName().Version is not { Major: 1, Minor: 0, Build: 90 })
+            return;
+
+        var bocchi = _config.UseBocchiNavigation;
+        if (ImGui.Checkbox("BOCCHI方式の移動経路を使用する", ref bocchi))
+        {
+            _config.UseBocchiNavigation = bocchi;
+            Save();
+        }
+
         ImGui.Spacing();
         var debugOverlay = _config.DebugWorldOverlay;
         if (ImGui.Checkbox("テスト用: 経路・危険敵をworld上に表示する", ref debugOverlay))
@@ -411,12 +462,6 @@ public sealed class ConfigWindow : Window
         }
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("目的地、選択Aethernet経路、IV/V/★/判定不能敵の感知範囲を描画します。通常はOFFにしてください。");
-
-        ImGui.Separator();
-        DrawAggroAvoidance();
-
-        ImGui.Separator();
-        DrawIdleSpots();
     }
 
     /// <summary>Routing around enemy aggro while travelling.</summary>
@@ -726,6 +771,12 @@ public sealed class ConfigWindow : Window
         if (!ImGui.BeginTabBar("##bbr_lostaction_tabs"))
             return;
 
+        if (ImGui.BeginTabItem("生存プリセット"))
+        {
+            DrawPermissions(all: false);
+            ImGui.EndTabItem();
+        }
+
         if (ImGui.BeginTabItem("Duty Actionバー"))
         {
             DrawDutyActionBarSettings();
@@ -828,10 +879,19 @@ public sealed class ConfigWindow : Window
             Save();
         }
 
+        ImGui.TextColored(Grey, "通常使用の対象一覧は「詳細設定」の「通常使用の優先候補」で変更できます。\n" +
+            "各アクションの自動使用許可も必要です。許可だけでは通常使用の対象に追加されません。");
+    }
+
+    private void DrawLostActionPriorityList()
+    {
+        var fire = _config.AutoFireLostActions;
         ImGui.Separator();
         ImGui.TextColored(Grey,
             "自動使用を許可する項目を選択します。「アイテム」はHolsterから直接消費される種類です。\n" +
             "Duty Action発動設定とは独立して消費されます。");
+        ImGui.TextColored(Grey, "ここは通常使用の対象選択です。別途、その品の「自動使用」の許可が必要です。\n" +
+            "上の名前検索を共有します。追加した順が優先順で、外して追加し直すと末尾になります。");
 
         if (!ImGui.BeginChild("##bbr_lostactions", new Vector2(0, 300), true))
         {
@@ -841,9 +901,12 @@ public sealed class ConfigWindow : Window
 
         foreach (var entry in _lostActions.All)
         {
+            var name = LostActionCatalog.JapaneseName(entry);
+            if (!name.Contains(_permissionSearch, StringComparison.OrdinalIgnoreCase))
+                continue;
             var selected = _config.AutoLostActions.Contains(entry.RowId);
             var kind = entry.IsItem ? ", アイテム" : string.Empty;
-            var label = $"{entry.Name}  (重量 {entry.Weight}{kind})##la{entry.RowId}";
+            var label = $"{name}  (重量 {entry.Weight}{kind})##la{entry.RowId}";
             if (ImGui.Checkbox(label, ref selected))
             {
                 if (selected)
@@ -861,6 +924,90 @@ public sealed class ConfigWindow : Window
         }
 
         ImGui.EndChild();
+    }
+
+    private void DrawPermissions(bool all)
+    {
+        ImGui.TextColored(Grey,
+            "持込: 自動構成・補給でホルダーへ入れてよい品です。\n" +
+            "自動使用: 条件を満たしたとき、手元の品を使ってよい設定です。\n" +
+            "持込を禁止しても自動使用を許可できます。実行中は次の判定から反映します。");
+        ImGui.TextColored(Yellow,
+            "秘薬は既定で両方不許可です。許可しても、この画面から直接消費は行いません。\n" +
+            "在庫の安全な自動転送と、既存の薬・秘薬の上書き設定はまだ未実装です。");
+
+        if (all)
+        {
+            ImGui.SetNextItemWidth(280);
+            ImGui.InputText("名前で検索##permissions", ref _permissionSearch, 100);
+        }
+        else
+        {
+            var role = _survival.Role switch
+            {
+                SurvivalRole.Tank => "タンク",
+                SurvivalRole.Healer => "ヒーラー",
+                SurvivalRole.Dps => "攻撃役",
+                _ => "未取得",
+            };
+            ImGui.TextUnformatted($"現在のロール: {role}。全アクションは「詳細設定」で検索できます。");
+        }
+
+        var entries = all ? _lostActions.All : SurvivalPresetCandidates();
+        var shown = 0;
+        if (ImGui.BeginChild("##permission_rows", new Vector2(0, 290), true))
+        {
+            if (ImGui.BeginTable("##permission_table", 3,
+                    ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+            {
+                ImGui.TableSetupColumn("ロストアクション", ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn("持込", ImGuiTableColumnFlags.WidthFixed, 90);
+                ImGui.TableSetupColumn("自動使用", ImGuiTableColumnFlags.WidthFixed, 110);
+                ImGui.TableHeadersRow();
+                foreach (var entry in entries)
+                {
+                    var name = LostActionCatalog.JapaneseName(entry);
+                    if (all && !name.Contains(_permissionSearch, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    shown++;
+                    ImGui.TableNextRow();
+                    ImGui.TableNextColumn();
+                    ImGui.TextUnformatted(name);
+                    ImGui.TableNextColumn();
+                    var bring = _survival.BringAllowed(entry);
+                    if (ImGui.Checkbox($"持込##bring{entry.RowId}", ref bring))
+                    {
+                        _config.LostActionBringPermissions[entry.RowId] = bring;
+                        Save();
+                    }
+                    ImGui.TableNextColumn();
+                    var use = _survival.AutoUseAllowed(entry);
+                    if (ImGui.Checkbox($"自動使用##use{entry.RowId}", ref use))
+                    {
+                        _config.LostActionAutoUsePermissions[entry.RowId] = use;
+                        Save();
+                    }
+                }
+                ImGui.EndTable();
+            }
+        }
+        ImGui.EndChild();
+        if (shown == 0)
+            ImGui.TextColored(Grey, "表示できる候補がありません。検索条件・現在のジョブ・データの取得状態を確認してください。");
+    }
+
+    private IEnumerable<LostActionCatalog.Entry> SurvivalPresetCandidates()
+    {
+        if (_survival.Role == SurvivalRole.Unknown)
+            yield break;
+        HashSet<byte> seen = [];
+        var names = new[] { "Resistance Potion Kit" }
+            .Concat(_survival.EmergencyPriority(travelling: false, includeReraiser: true))
+            .Concat(_survival.HealPriority(travelling: false))
+            .Concat(_survival.EssencePriority);
+        foreach (var name in names)
+            if (_survival.Find(name) is { } entry && seen.Add(entry.RowId))
+                yield return entry;
     }
 
     /// <summary>
@@ -945,7 +1092,7 @@ public sealed class ConfigWindow : Window
                 ? "回復"
                 : entry.HasDuration ? $"{Describe(entry.DurationSeconds)} バフ" : "バフ";
 
-            if (ImGui.Checkbox($"{entry.Name}  ({kind})##ps{entry.RowId}", ref selected))
+            if (ImGui.Checkbox($"{LostActionCatalog.JapaneseName(entry)}  ({kind})##ps{entry.RowId}", ref selected))
             {
                 if (selected)
                     _config.PartySupportActions.Add(entry.RowId);

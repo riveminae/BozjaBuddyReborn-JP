@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Dalamud.Game;
 using ECommons.DalamudServices;
 using Lumina.Excel.Sheets;
 
@@ -134,6 +135,23 @@ public sealed class LostActionCatalog
         if (rowId == 0)
             return "(empty)";
         return TryGet(rowId, out var e) && e.Name.Length > 0 ? e.Name : $"Lost Action #{rowId}";
+    }
+
+    /// <summary>JP presentation only; do not change the client-language name used by status matching.</summary>
+    public static string JapaneseName(Entry entry)
+    {
+        try
+        {
+            var name = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Action>(ClientLanguage.Japanese)?
+                .GetRowOrDefault(entry.ActionId)?.Name.ExtractText();
+            if (!string.IsNullOrWhiteSpace(name))
+                return name;
+        }
+        catch
+        {
+            // Data may be unavailable during loading; retry on the next draw.
+        }
+        return $"名称未取得（番号{entry.RowId}）";
     }
 
     /// <summary>Holster weight of one copy (the holster capacity is weight-based, not slot-based).</summary>

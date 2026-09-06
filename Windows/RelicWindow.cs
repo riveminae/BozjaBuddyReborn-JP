@@ -40,6 +40,8 @@ public sealed class RelicWindow : Window
 
     public override void Draw()
     {
+        DrawFarmSettings();
+        ImGui.Separator();
         DrawUnlocks();
         ImGui.Separator();
 
@@ -52,6 +54,35 @@ public sealed class RelicWindow : Window
             DrawAllStages();
         else
             DrawCurrent();
+    }
+
+    private void DrawFarmSettings()
+    {
+        string[] labels = ["無限周回", "指定素材完了で停止", "現在段階完了で停止"];
+        var mode = (int)_config.RelicFarmStopMode;
+        ImGui.SetNextItemWidth(250);
+        if (ImGui.BeginCombo("停止条件", mode >= 0 && mode < labels.Length ? labels[mode] : "未設定"))
+        {
+            for (var i = 0; i < labels.Length; i++)
+            {
+                if (ImGui.Selectable(labels[i], mode == i))
+                {
+                    _config.RelicFarmStopMode = (RelicFarmStopMode)i;
+                    ConfigSaver.Save(_config);
+                }
+                if (mode == i) ImGui.SetItemDefaultFocus();
+            }
+            ImGui.EndCombo();
+        }
+        var next = _config.RelicAutoContinue;
+        if (ImGui.Checkbox("完了後は次の不足素材へ継続する", ref next))
+        {
+            _config.RelicAutoContinue = next;
+            ConfigSaver.Save(_config);
+        }
+        ImGui.TextColored(Grey, "最初の素材は下の「周回開始」で指定します。ここを開くだけでは選択しません。\n" +
+            "停止条件を優先し、継続する場合も現在のフィールドで取得できる素材だけを選びます。");
+        ImGui.TextColored(Grey, "次の不足素材への継続を無効にすると、指定素材が揃った時点で停止します。");
     }
 
     private void DrawUnlocks()
